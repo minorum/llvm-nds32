@@ -72,6 +72,11 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
   // to the JR instruction).
   setOperationAction(ISD::JumpTable, MVT::i32, Custom);
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
+  // Dynamic alloca: adjust $sp by the (aligned) size and return the new $sp.
+  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Custom);
+  // Frame/return address builtins.
+  setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
+  setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
   // SELECT expands to SELECT_CC, which we lower to a control-flow diamond via
   // a custom inserter. (Leaving SELECT_CC as Expand too would loop forever:
   // SELECT -> SELECT_CC -> nowhere.)
@@ -312,6 +317,12 @@ SDValue NDS32TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const
     return LowerSETCC(Op, DAG);
   case ISD::SELECT_CC:
     return LowerSELECT_CC(Op, DAG);
+  case ISD::DYNAMIC_STACKALLOC:
+    return LowerDYNAMIC_STACKALLOC(Op, DAG);
+  case ISD::FRAMEADDR:
+    return LowerFRAMEADDR(Op, DAG);
+  case ISD::RETURNADDR:
+    return LowerRETURNADDR(Op, DAG);
   case ISD::CALLSEQ_START:
   case ISD::CALLSEQ_END:
     return Op;
@@ -797,6 +808,59 @@ SDValue NDS32TargetLowering::LowerSELECT_CC(SDValue Op,
 
   return DAG.getNode(NDS32ISD::SELECT_CC, DL, Op.getValueType(), Cond, TrueV,
                      FalseV);
+}
+
+SDValue NDS32TargetLowering::LowerFRAMEADDR(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MF.getFrameInfo().setFrameAddressIsTaken(true);
+  SDLoc DL(Op);
+  EVT VT = Op.getValueType();
+  // The frame pointer ($r28) is the address of the current frame.
+  if (Op.getConstantOperandVal(0) != 0)
+    report_fatal_error("NDS32 frameaddress only supports a depth of 0");
+  return DAG.getCopyFromReg(DAG.getEntryNode(), DL, NDS32::R28, VT);
+}
+
+SDValue NDS32TargetLowering::LowerRETURNADDR(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MF.getFrameInfo().setReturnAddressIsTaken(true);
+  SDLoc DL(Op);
+  EVT VT = Op.getValueType();
+  if (Op.getConstantOperandVal(0) != 0)
+    report_fatal_error("NDS32 returnaddress only supports a depth of 0");
+  // The return address is in $lp ($r30); mark it live-in so its incoming value
+  // is available.
+  Register Reg = MF.addLiveIn(NDS32::R30, &NDS32::GPRRegClass);
+  return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, VT);
+}
+
+SDValue NDS32TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
+                                                     SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  EVT VT = Op.getValueType(); // i32
+  SDValue Chain = Op.getOperand(0);
+  SDValue Size = Op.getOperand(1);
+  MaybeAlign Alloca = cast<ConstantSDNode>(Op.getOperand(2))->getMaybeAlignValue();
+
+  // newSP = $sp - Size, then align down. The size operand is already rounded up
+  // to the stack alignment by the legalizer; honor a larger alloca alignment.
+  Register SPReg = NDS32::R31;
+  SDValue SP = DAG.getCopyFromReg(Chain, DL, SPReg, VT);
+  Chain = SP.getValue(1);
+  SDValue NewSP = DAG.getNode(ISD::SUB, DL, VT, SP, Size);
+
+  Align StackAlign = DAG.getSubtarget().getFrameLowering()->getStackAlign();
+  Align A = std::max(Alloca.valueOrOne(), StackAlign);
+  if (A > StackAlign)
+    NewSP = DAG.getNode(ISD::AND, DL, VT, NewSP,
+                        DAG.getSignedConstant(-(int64_t)A.value(), DL, VT));
+
+  Chain = DAG.getCopyToReg(Chain, DL, SPReg, NewSP);
+  // The allocated block starts at the new stack pointer.
+  SDValue Ops[] = {NewSP, Chain};
+  return DAG.getMergeValues(Ops, DL);
 }
 
 MachineBasicBlock *

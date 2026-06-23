@@ -74,19 +74,20 @@ bool NDS32RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
           MF.getSubtarget().getFrameLowering());
 
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
-  // Fixed objects are reached from the frame pointer ($r28, which holds the
-  // entry stack pointer) when one is present, otherwise from $sp (the offset
-  // then includes the whole frame). The trailing immediate operand is preserved
-  // (e.g. a struct-field byte offset) rather than overwritten.
+  // The frame pointer ($r28) holds the post-prologue stack pointer, so FP- and
+  // $sp-relative displacements of a fixed object are identical: objectOffset +
+  // whole frame. The trailing immediate operand (e.g. a struct-field byte
+  // offset) is preserved rather than overwritten.
   int64_t Offset = MF.getFrameInfo().getObjectOffset(FrameIndex) +
+                   MF.getFrameInfo().getStackSize() +
                    MI.getOperand(FIOperandNum + 1).getImm();
-  Register BaseReg;
-  if (TFI.hasFP(MF)) {
-    BaseReg = NDS32::R28;
-  } else {
-    BaseReg = NDS32::R31;
-    Offset += MF.getFrameInfo().getStackSize();
-  }
+  // Normal locals use $fp when present (it is stable across a dynamic alloca
+  // that moves $sp); the callee-saved spills/reloads (FrameSetup/FrameDestroy)
+  // run while $fp is not yet/no longer valid, so they stay $sp-relative.
+  bool IsCSRAccess = MI.getFlag(MachineInstr::FrameSetup) ||
+                     MI.getFlag(MachineInstr::FrameDestroy);
+  Register BaseReg =
+      (TFI.hasFP(MF) && !IsCSRAccess) ? NDS32::R28 : NDS32::R31;
 
   // If the offset fits the instruction's signed 15-bit field, fold it directly.
   if (isInt<15>(Offset)) {
