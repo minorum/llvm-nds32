@@ -467,6 +467,45 @@ void NDS32MCCodeEmitter::encodeInstruction(
            (getReg(MI.getOperand(2)) << 10) | (Scale << 8) | Sub;
     break;
   }
+  // Post-increment loads: operands rt(0), ra_wb(1,tied), ra(2), imm(3); the
+  // byte increment is scaled by the element size into a signed 15-bit field.
+  case NDS32::LBI_POST:
+  case NDS32::LBSI_POST:
+  case NDS32::LHI_POST:
+  case NDS32::LHSI_POST:
+  case NDS32::LWI_POST: {
+    uint32_t Op;
+    int Shift;
+    switch (MI.getOpcode()) {
+    case NDS32::LBI_POST:  Op = 0x08000000; Shift = 0; break;
+    case NDS32::LBSI_POST: Op = 0x28000000; Shift = 0; break;
+    case NDS32::LHI_POST:  Op = 0x0a000000; Shift = 1; break;
+    case NDS32::LHSI_POST: Op = 0x2a000000; Shift = 1; break;
+    default:               Op = 0x0c000000; Shift = 2; break; // LWI_POST
+    }
+    int64_t Imm = MI.getOperand(3).getImm() >> Shift;
+    Bits = Op | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(2)) << 15) |
+           (static_cast<uint32_t>(Imm) & 0x7fff);
+    break;
+  }
+  // Post-increment stores: operands ra_wb(0,tied), rt(1), ra(2), imm(3).
+  case NDS32::SBI_POST:
+  case NDS32::SHI_POST:
+  case NDS32::SWI_POST: {
+    uint32_t Op;
+    int Shift;
+    switch (MI.getOpcode()) {
+    case NDS32::SBI_POST: Op = 0x18000000; Shift = 0; break;
+    case NDS32::SHI_POST: Op = 0x1a000000; Shift = 1; break;
+    default:              Op = 0x1c000000; Shift = 2; break; // SWI_POST
+    }
+    int64_t Imm = MI.getOperand(3).getImm() >> Shift;
+    Bits = Op | (getReg(MI.getOperand(1)) << 20) |
+           (getReg(MI.getOperand(2)) << 15) |
+           (static_cast<uint32_t>(Imm) & 0x7fff);
+    break;
+  }
   // Single-precision FPU. Three-register ALU ops share the rt/ra/rb layout.
   case NDS32::FADDS:
   case NDS32::FSUBS:

@@ -75,6 +75,11 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
   // Dynamic alloca: adjust $sp by the (aligned) size and return the new $sp.
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Custom);
+  // Post-increment addressing for the integer load/store sizes (lwi.bi/swi.bi).
+  for (MVT VT : {MVT::i8, MVT::i16, MVT::i32}) {
+    setIndexedLoadAction(ISD::POST_INC, VT, Legal);
+    setIndexedStoreAction(ISD::POST_INC, VT, Legal);
+  }
   // Frame/return address builtins.
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
@@ -905,6 +910,37 @@ SDValue NDS32TargetLowering::LowerSELECT_CC(SDValue Op,
   }
 
   return DAG.getNode(NDS32ISD::SELECT_CC, DL, VT, Cond, TrueV, FalseV);
+}
+
+bool NDS32TargetLowering::getPostIndexedAddressParts(
+    SDNode *N, SDNode *Op, SDValue &Base, SDValue &Offset,
+    ISD::MemIndexedMode &AM, SelectionDAG &DAG) const {
+  EVT VT;
+  if (auto *LD = dyn_cast<LoadSDNode>(N))
+    VT = LD->getMemoryVT();
+  else if (auto *ST = dyn_cast<StoreSDNode>(N))
+    VT = ST->getMemoryVT();
+  else
+    return false;
+  if (VT != MVT::i8 && VT != MVT::i16 && VT != MVT::i32)
+    return false;
+
+  // Only fold "base + constant" updates whose byte increment is aligned to the
+  // access size and fits the element-scaled signed 15-bit field.
+  if (Op->getOpcode() != ISD::ADD)
+    return false;
+  auto *CN = dyn_cast<ConstantSDNode>(Op->getOperand(1));
+  if (!CN)
+    return false;
+  int64_t Inc = CN->getSExtValue();
+  unsigned Elt = VT.getStoreSize();
+  if (Inc % static_cast<int64_t>(Elt) != 0 || !isInt<15>(Inc / Elt))
+    return false;
+
+  Base = Op->getOperand(0);
+  Offset = Op->getOperand(1);
+  AM = ISD::POST_INC;
+  return true;
 }
 
 SDValue NDS32TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {

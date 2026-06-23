@@ -304,6 +304,30 @@ def : Pat<(i32 (extloadi8 regoaddr:$addr)),  (LB_RR memrr:$addr)>;
 def : Pat<(i32 (extloadi16 regoaddr:$addr)), (LH_RR memrr:$addr)>;
 def : Pat<(i32 (extloadi1 regoaddr:$addr)),  (LB_RR memrr:$addr)>;
 
+// Post-increment loads/stores: access [$ra], then $ra += $imm (byte units; the
+// encoder scales by the element size). $ra is tied to the writeback $ra_wb.
+// These are selected in C++ from POST_INC indexed loads/stores (no pattern).
+let Constraints = "$ra = $ra_wb", mayLoad = 1 in {
+def LBI_POST  : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
+                          "lbi.bi\t$rt, [$ra], $imm", []>;
+def LBSI_POST : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
+                          "lbsi.bi\t$rt, [$ra], $imm", []>;
+def LHI_POST  : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
+                          "lhi.bi\t$rt, [$ra], $imm", []>;
+def LHSI_POST : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
+                          "lhsi.bi\t$rt, [$ra], $imm", []>;
+def LWI_POST  : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
+                          "lwi.bi\t$rt, [$ra], $imm", []>;
+}
+let Constraints = "$ra = $ra_wb", mayStore = 1 in {
+def SBI_POST : NDS32Inst<(outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
+                         "sbi.bi\t$rt, [$ra], $imm", []>;
+def SHI_POST : NDS32Inst<(outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
+                         "shi.bi\t$rt, [$ra], $imm", []>;
+def SWI_POST : NDS32Inst<(outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
+                         "swi.bi\t$rt, [$ra], $imm", []>;
+}
+
 // Any-extending narrow loads (don't care about the high bits): reuse the
 // zero-extending byte/halfword loads.
 def : Pat<(i32 (extloadi8 addr:$addr)),  (LBI memri8:$addr)>;

@@ -51,7 +51,11 @@ public:
     }
   }
 
+  bool trySelectPostInc(SDNode *Node);
+
   void Select(SDNode *Node) override {
+    if (trySelectPostInc(Node))
+      return;
     // A standalone FrameIndex value (e.g. the address of a local passed to a
     // call) materializes as "addi $dst, <fi>, 0"; eliminateFrameIndex rewrites
     // the FI/offset pair into "$sp + frameoffset".
@@ -112,6 +116,65 @@ bool NDS32DAGToDAGISel::selectMemAddr(SDValue Addr, SDValue &Base,
   Base = Addr;
   Offset = CurDAG->getTargetConstant(0, DL, MVT::i32);
   return true;
+}
+
+// Select a POST_INC indexed load or store into lwi.bi/swi.bi etc. The indexed
+// load has results (value, writeback-base, chain); the indexed store has
+// (writeback-base, chain). The byte increment is a constant (validated by
+// getPostIndexedAddressParts).
+bool NDS32DAGToDAGISel::trySelectPostInc(SDNode *Node) {
+  SDLoc DL(Node);
+  if (auto *LD = dyn_cast<LoadSDNode>(Node)) {
+    if (LD->getAddressingMode() != ISD::POST_INC)
+      return false;
+    EVT MemVT = LD->getMemoryVT();
+    bool Sext = LD->getExtensionType() == ISD::SEXTLOAD;
+    unsigned Opc;
+    if (MemVT == MVT::i32)
+      Opc = NDS32::LWI_POST;
+    else if (MemVT == MVT::i16)
+      Opc = Sext ? NDS32::LHSI_POST : NDS32::LHI_POST;
+    else if (MemVT == MVT::i8)
+      Opc = Sext ? NDS32::LBSI_POST : NDS32::LBI_POST;
+    else
+      return false;
+    int64_t Inc = cast<ConstantSDNode>(LD->getOffset())->getSExtValue();
+    SDValue Imm = CurDAG->getSignedTargetConstant(Inc, DL, MVT::i32);
+    SDValue Ops[] = {LD->getBasePtr(), Imm, LD->getChain()};
+    SDNode *New = CurDAG->getMachineNode(
+        Opc, DL, {MVT::i32, MVT::i32, MVT::Other}, Ops);
+    // value, writeback base, chain
+    ReplaceUses(SDValue(Node, 0), SDValue(New, 0));
+    ReplaceUses(SDValue(Node, 1), SDValue(New, 1));
+    ReplaceUses(SDValue(Node, 2), SDValue(New, 2));
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  if (auto *ST = dyn_cast<StoreSDNode>(Node)) {
+    if (ST->getAddressingMode() != ISD::POST_INC)
+      return false;
+    EVT MemVT = ST->getMemoryVT();
+    unsigned Opc;
+    if (MemVT == MVT::i32)
+      Opc = NDS32::SWI_POST;
+    else if (MemVT == MVT::i16)
+      Opc = NDS32::SHI_POST;
+    else if (MemVT == MVT::i8)
+      Opc = NDS32::SBI_POST;
+    else
+      return false;
+    int64_t Inc = cast<ConstantSDNode>(ST->getOffset())->getSExtValue();
+    SDValue Imm = CurDAG->getSignedTargetConstant(Inc, DL, MVT::i32);
+    SDValue Ops[] = {ST->getValue(), ST->getBasePtr(), Imm, ST->getChain()};
+    SDNode *New =
+        CurDAG->getMachineNode(Opc, DL, {MVT::i32, MVT::Other}, Ops);
+    // writeback base, chain
+    ReplaceUses(SDValue(Node, 0), SDValue(New, 0));
+    ReplaceUses(SDValue(Node, 1), SDValue(New, 1));
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  return false;
 }
 
 // Match "base + index" or "base + (index << sv)" (sv in 0..3) for the

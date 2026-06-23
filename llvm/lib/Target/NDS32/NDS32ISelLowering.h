@@ -89,6 +89,12 @@ public:
   // it into a zero-check branch before instruction selection.
   bool isCheapToSpeculateCtlz(Type *) const override { return true; }
 
+  // Post-increment addressing: lwi.bi/swi.bi update the base register by a
+  // constant after the access.
+  bool getPostIndexedAddressParts(SDNode *N, SDNode *Op, SDValue &Base,
+                                  SDValue &Offset, ISD::MemIndexedMode &AM,
+                                  SelectionDAG &DAG) const override;
+
   // Inline assembly support. Recognizes the generic "r" register constraint
   // (any GPR) and three immediate constraints mapped to real NDS32 immediate
   // fields: "I" = signed 15-bit (addi/load-store offset), "J" = signed 20-bit
