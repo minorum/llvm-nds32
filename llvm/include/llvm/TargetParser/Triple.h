@@ -110,7 +110,10 @@ public:
     renderscript32, // 32-bit RenderScript
     renderscript64, // 64-bit RenderScript
     ve,             // NEC SX-Aurora Vector Engine
-    LastArchType = ve
+    nds32,          // NDS32 (default/big endian): nds32
+    nds32le,        // NDS32 (little endian): nds32le
+    nds32be,        // NDS32 (big endian): nds32be
+    LastArchType = nds32be
   };
   enum SubArchType {
     NoSubArch,

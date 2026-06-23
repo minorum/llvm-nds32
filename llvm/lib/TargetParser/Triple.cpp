@@ -82,6 +82,9 @@ StringRef Triple::getArchTypeName(ArchType Kind) {
   case thumb:          return "thumb";
   case thumbeb:        return "thumbeb";
   case ve:             return "ve";
+  case nds32:          return "nds32";
+  case nds32le:        return "nds32le";
+  case nds32be:        return "nds32be";
   case wasm32:         return "wasm32";
   case wasm64:         return "wasm64";
   case x86:            return "i386";
@@ -251,6 +254,9 @@ StringRef Triple::getArchTypePrefix(ArchType Kind) {
     return "riscv";
 
   case ve:          return "ve";
+  case nds32:
+  case nds32le:
+  case nds32be:     return "nds32";
   case csky:        return "csky";
 
   case loongarch32:
@@ -660,6 +666,9 @@ static Triple::ArchType parseArch(StringRef ArchName) {
           .Case("renderscript64", Triple::renderscript64)
           .Case("shave", Triple::shave)
           .Case("ve", Triple::ve)
+          .Case("nds32", Triple::nds32)
+          .Case("nds32le", Triple::nds32le)
+          .Case("nds32be", Triple::nds32be)
           .Case("wasm32", Triple::wasm32)
           .Case("wasm64", Triple::wasm64)
           .Case("csky", Triple::csky)
@@ -1028,6 +1037,9 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::ve:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::nds32:
+  case Triple::nds32le:
+  case Triple::nds32be:
     return Triple::ELF;
 
   case Triple::mipsel:
@@ -1754,6 +1766,9 @@ unsigned Triple::getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::x86:
   case llvm::Triple::xcore:
   case llvm::Triple::xtensa:
+  case llvm::Triple::nds32:
+  case llvm::Triple::nds32le:
+  case llvm::Triple::nds32be:
     return 32;
 
   case llvm::Triple::aarch64:
@@ -1864,6 +1879,9 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::x86:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::nds32:
+  case Triple::nds32le:
+  case Triple::nds32be:
     // Already 32-bit.
     break;
 
@@ -1918,6 +1936,9 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::tcele:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::nds32:
+  case Triple::nds32le:
+  case Triple::nds32be:
     T.setArch(UnknownArch);
     break;
 
@@ -2045,6 +2066,7 @@ Triple Triple::getBigEndianArchVariant() const {
     break;
   case Triple::sparcel: T.setArch(Triple::sparc);      break;
   case Triple::tcele:   T.setArch(Triple::tce);        break;
+  case Triple::nds32le: T.setArch(Triple::nds32be);    break;
   default:
     llvm_unreachable("getBigEndianArchVariant: unknown triple.");
   }
@@ -2088,6 +2110,8 @@ Triple Triple::getLittleEndianArchVariant() const {
     break;
   case Triple::sparc:      T.setArch(Triple::sparcel);  break;
   case Triple::tce:        T.setArch(Triple::tcele);    break;
+  case Triple::nds32:      T.setArch(Triple::nds32le);  break;
+  case Triple::nds32be:    T.setArch(Triple::nds32le);  break;
   default:
     llvm_unreachable("getLittleEndianArchVariant: unknown triple.");
   }
@@ -2140,6 +2164,7 @@ bool Triple::isLittleEndian() const {
   case Triple::x86_64:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::nds32le:
     return true;
   default:
     return false;

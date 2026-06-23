@@ -2774,6 +2774,24 @@ def LanaiSystemLibrary
 }
 
 //===----------------------------------------------------------------------===//
+// NDS32 Runtime Libcalls
+//===----------------------------------------------------------------------===//
+
+def isNDS32 : RuntimeLibcallPredicate<[{TT.getArch() == Triple::nds32 ||
+                                        TT.getArch() == Triple::nds32le ||
+                                        TT.getArch() == Triple::nds32be}]>;
+
+// NDS32 is a 32-bit target: use the standard default libcalls plus the
+// 128-bit integer helpers and the compiler-rt-only 64/128-bit overflow-checked
+// multiply helpers (__mulodi4/__muloti4). Rust's compiler_builtins provides
+// these, and they are needed for i64/i128 checked_mul.
+def NDS32SystemLibrary
+    : SystemRuntimeLibrary<isNDS32,
+                           (add DefaultRuntimeLibcallImpls, Int128RTLibcalls,
+                                CompilerRTOnlyInt64Libcalls,
+                                CompilerRTOnlyInt128Libcalls)>;
+
+//===----------------------------------------------------------------------===//
 // Mips16 Runtime Libcalls
 //===----------------------------------------------------------------------===//
 
