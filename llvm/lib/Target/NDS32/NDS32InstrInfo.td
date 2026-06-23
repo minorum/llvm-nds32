@@ -124,9 +124,59 @@ def ZEH : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
                     "zeh\t$dst, $src",
                     [(set GPR:$dst, (and GPR:$src, 0xffff))]>;
 
+// Count leading zeros. clz returns 32 for a zero input, matching both
+// ISD::CTLZ and ISD::CTLZ_ZERO_UNDEF.
+def CLZ : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
+                    "clz\t$dst, $src",
+                    [(set GPR:$dst, (ctlz GPR:$src))]>;
+def : Pat<(ctlz_zero_undef GPR:$src), (CLZ GPR:$src)>;
+
+// Byte-swap within each halfword (0xAABBCCDD -> 0xBBAADDCC) and rotate-right by
+// immediate. Composed, they form a full 32-bit byte reverse (BSWAP):
+// rotri(wsbh(x), 16) = 0xDDCCBBAA.
+def WSBH : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
+                     "wsbh\t$dst, $src", []>;
+def ROTRIri : NDS32Inst<(outs GPR:$dst), (ins GPR:$src, i32imm:$sa),
+                        "rotri\t$dst, $src, $sa", []>;
+def : Pat<(bswap GPR:$src), (ROTRIri (WSBH GPR:$src), (i32 16))>;
+
+// Conditional moves: each conditionally overwrites $dst and preserves it
+// otherwise, so $dstin is tied to $dst. cmovz writes when $cond == 0, cmovn
+// when $cond != 0. The branchless select expansion emits a cmovn/cmovz pair
+// (see EmitInstrWithCustomInserter); exactly one fires, fully defining $dst.
+let Constraints = "$dstin = $dst" in {
+def CMOVZ : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$src, GPR:$cond),
+                      "cmovz\t$dst, $src, $cond", []>;
+def CMOVN : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$src, GPR:$cond),
+                      "cmovn\t$dst, $src, $cond", []>;
+
+// Fused multiply-accumulate / multiply-subtract (low 32 bits): the running
+// accumulator $dstin is tied to $dst.
+def MADDR32 : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$a, GPR:$b),
+                        "maddr32\t$dst, $a, $b",
+                        [(set GPR:$dst, (add GPR:$dstin, (mul GPR:$a, GPR:$b)))]>;
+def MSUBR32 : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$a, GPR:$b),
+                        "msubr32\t$dst, $a, $b",
+                        [(set GPR:$dst, (sub GPR:$dstin, (mul GPR:$a, GPR:$b)))]>;
+}
+
 def ANDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "andi\t$dst, $lhs, $imm",
                       [(set GPR:$dst, (and GPR:$lhs, imm:$imm))]>;
+
+// bitci rt, ra, #imm15: rt = ra & ~zext(imm15). Matches an AND with a constant
+// whose complement fits in 15 unsigned bits (i.e. only low bits are cleared),
+// saving a movi+and. The operand carries the cleared mask (~C).
+def bitci_xform : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(~(uint32_t)N->getZExtValue() & 0x7fff,
+                                   SDLoc(N), MVT::i32);
+}]>;
+def imm_bitci : PatLeaf<(imm), [{
+  return isUInt<15>(~(uint32_t)N->getZExtValue());
+}], bitci_xform>;
+def BITCI : NDS32Inst<(outs GPR:$dst), (ins GPR:$ra, i32imm:$imm),
+                      "bitci\t$dst, $ra, $imm",
+                      [(set GPR:$dst, (and GPR:$ra, imm_bitci:$imm))]>;
 
 def ORri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                      "ori\t$dst, $lhs, $imm",

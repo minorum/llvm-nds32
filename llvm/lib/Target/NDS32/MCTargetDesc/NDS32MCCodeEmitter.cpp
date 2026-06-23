@@ -398,6 +398,46 @@ void NDS32MCCodeEmitter::encodeInstruction(
            encodeBranchTarget(MI.getOperand(1), Fixups,
                               static_cast<MCFixupKind>(NDS32::fixup_nds32_17_pcrel));
     break;
+  case NDS32::CLZ:
+    Bits = 0x42000007 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15);
+    break;
+  case NDS32::WSBH:
+    Bits = 0x40000014 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15);
+    break;
+  case NDS32::ROTRIri:
+    Bits = 0x4000000b | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15) |
+           ((static_cast<uint32_t>(MI.getOperand(2).getImm()) & 0x1f) << 10);
+    break;
+  // Conditional moves and MAC ops carry a tied $dstin in operand 1; the encoded
+  // fields are dst (operand 0), src/a (operand 2), cond/b (operand 3).
+  case NDS32::CMOVZ:
+    Bits = 0x4000001a | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(2)) << 15) |
+           (getReg(MI.getOperand(3)) << 10);
+    break;
+  case NDS32::CMOVN:
+    Bits = 0x4000001b | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(2)) << 15) |
+           (getReg(MI.getOperand(3)) << 10);
+    break;
+  case NDS32::MADDR32:
+    Bits = 0x42000073 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(2)) << 15) |
+           (getReg(MI.getOperand(3)) << 10);
+    break;
+  case NDS32::MSUBR32:
+    Bits = 0x42000075 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(2)) << 15) |
+           (getReg(MI.getOperand(3)) << 10);
+    break;
+  case NDS32::BITCI:
+    Bits = 0x66000000 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15) |
+           (static_cast<uint32_t>(MI.getOperand(2).getImm()) & 0x7fff);
+    break;
   default:
     report_fatal_error("NDS32 instruction encoding is not implemented");
   }

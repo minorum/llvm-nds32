@@ -45,12 +45,17 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::MULHS, MVT::i32, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
   setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
-  // NDS32 (as modeled here) has no bit-counting, byte-swap, rotate, or funnel
-  // shift instructions; expand them into the basic ALU ops we do have. Rust
-  // core uses these pervasively (e.g. align_offset, integer formatting).
-  setOperationAction({ISD::CTTZ, ISD::CTLZ, ISD::CTPOP, ISD::BSWAP,
-                      ISD::CTTZ_ZERO_UNDEF, ISD::CTLZ_ZERO_UNDEF},
-                     MVT::i32, Expand);
+  // We have native clz (CTLZ, including the zero-undef form) and form a 32-bit
+  // byte reverse from wsbh+rotri (BSWAP) — see NDS32InstrInfo.td. The remaining
+  // bit-counting ops have no instruction; expand them into the basic ALU ops we
+  // do have. Rust core uses these pervasively (e.g. align_offset, formatting).
+  // Native clz handles a zero input (clz(0) = 32), matching both the
+  // zero-defined and zero-undef forms. isCheapToSpeculateCtlz() (below) keeps
+  // CodeGenPrepare from despeculating CTLZ into a zero-check branch first.
+  setOperationAction({ISD::CTLZ, ISD::CTLZ_ZERO_UNDEF, ISD::BSWAP}, MVT::i32,
+                     Legal);
+  setOperationAction({ISD::CTTZ, ISD::CTPOP, ISD::CTTZ_ZERO_UNDEF}, MVT::i32,
+                     Expand);
   setOperationAction({ISD::ROTL, ISD::ROTR}, MVT::i32, Expand);
   setOperationAction({ISD::FSHL, ISD::FSHR}, MVT::i32, Expand);
   // Checked arithmetic (overflow-producing ops) is everywhere in Rust core;
@@ -802,51 +807,35 @@ NDS32TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
 
   const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
   const DebugLoc &DL = MI.getDebugLoc();
-  const BasicBlock *LLVMBB = BB->getBasicBlock();
-  MachineFunction *MF = BB->getParent();
-  MachineFunction::iterator It = ++BB->getIterator();
-
-  // Build the diamond:
-  //
-  //   ThisMBB:
-  //     bnez $cond, SinkMBB     ; cond != 0 -> take the true value
-  //     (fall through to Copy0MBB)
-  //   Copy0MBB:
-  //     (fall through to SinkMBB)
-  //   SinkMBB:
-  //     $dst = PHI [$t, ThisMBB], [$f, Copy0MBB]
-  MachineBasicBlock *ThisMBB = BB;
-  MachineBasicBlock *Copy0MBB = MF->CreateMachineBasicBlock(LLVMBB);
-  MachineBasicBlock *SinkMBB = MF->CreateMachineBasicBlock(LLVMBB);
-  MF->insert(It, Copy0MBB);
-  MF->insert(It, SinkMBB);
-
-  // Move everything after the Select to SinkMBB and inherit ThisMBB's
-  // successors.
-  SinkMBB->splice(SinkMBB->begin(), ThisMBB,
-                  std::next(MachineBasicBlock::iterator(MI)), ThisMBB->end());
-  SinkMBB->transferSuccessorsAndUpdatePHIs(ThisMBB);
-
-  ThisMBB->addSuccessor(Copy0MBB);
-  ThisMBB->addSuccessor(SinkMBB);
+  MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
 
   Register DstReg = MI.getOperand(0).getReg();
   Register CondReg = MI.getOperand(1).getReg();
   Register TrueReg = MI.getOperand(2).getReg();
   Register FalseReg = MI.getOperand(3).getReg();
 
-  BuildMI(ThisMBB, DL, TII.get(NDS32::BNEZ)).addReg(CondReg).addMBB(SinkMBB);
-
-  Copy0MBB->addSuccessor(SinkMBB);
-
-  BuildMI(*SinkMBB, SinkMBB->begin(), DL, TII.get(TargetOpcode::PHI), DstReg)
+  // Branchless select via a cmovn/cmovz pair (no diamond, stays in one block):
+  //
+  //   tmp = IMPLICIT_DEF
+  //   tmp = cmovn tmp, $true,  $cond   ; if cond != 0 -> tmp = true
+  //   $dst = cmovz tmp, $false, $cond  ; if cond == 0 -> dst = false, else tmp
+  //
+  // Exactly one of the two conditional moves fires, so $dst is fully defined;
+  // the IMPLICIT_DEF seed is never observed.
+  Register Undef = MRI.createVirtualRegister(&NDS32::GPRRegClass);
+  Register Tmp = MRI.createVirtualRegister(&NDS32::GPRRegClass);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::IMPLICIT_DEF), Undef);
+  BuildMI(*BB, MI, DL, TII.get(NDS32::CMOVN), Tmp)
+      .addReg(Undef)
       .addReg(TrueReg)
-      .addMBB(ThisMBB)
+      .addReg(CondReg);
+  BuildMI(*BB, MI, DL, TII.get(NDS32::CMOVZ), DstReg)
+      .addReg(Tmp)
       .addReg(FalseReg)
-      .addMBB(Copy0MBB);
+      .addReg(CondReg);
 
   MI.eraseFromParent();
-  return SinkMBB;
+  return BB;
 }
 
 //===----------------------------------------------------------------------===//

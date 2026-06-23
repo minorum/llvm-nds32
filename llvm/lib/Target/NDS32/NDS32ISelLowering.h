@@ -80,6 +80,11 @@ public:
   EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *MBB) const override;
 
+  // We have a single-cycle clz that is correct for a zero input, so a CTLZ is
+  // worth keeping as one instruction; this stops CodeGenPrepare from expanding
+  // it into a zero-check branch before instruction selection.
+  bool isCheapToSpeculateCtlz(Type *) const override { return true; }
+
   // Inline assembly support. Recognizes the generic "r" register constraint
   // (any GPR) and three immediate constraints mapped to real NDS32 immediate
   // fields: "I" = signed 15-bit (addi/load-store offset), "J" = signed 20-bit

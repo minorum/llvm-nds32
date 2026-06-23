@@ -22,11 +22,23 @@ def NDS32InstrInfo : InstrInfo;
 // target-independent pseudo instructions to a concrete register class.
 defm : RemapAllTargetPseudoPointerOperands<GPR>;
 
+// In-order, single-issue scheduling model approximating the Andes N9 core: one
+// instruction issued per cycle, two-cycle load-use latency. CompleteModel is
+// off since per-instruction SchedWrites are not yet defined; the scheduler
+// falls back to defaults for unannotated instructions.
+def NDS32SchedModel : SchedMachineModel {
+  let IssueWidth = 1;
+  let MicroOpBufferSize = 0; // in-order
+  let LoadLatency = 2;
+  let MispredictPenalty = 5;
+  let CompleteModel = 0;
+}
+
 // "generic" defaults to the V2 baseline; "v2"/"v3" select the ISA explicitly.
-def : Processor<"generic", NoItineraries, [FeatureV2]>;
-def : Processor<"nds32",   NoItineraries, [FeatureV2]>;
-def : Processor<"v2",      NoItineraries, [FeatureV2]>;
-def : Processor<"v3",      NoItineraries, [FeatureV3]>;
+def : ProcessorModel<"generic", NDS32SchedModel, [FeatureV2]>;
+def : ProcessorModel<"nds32",   NDS32SchedModel, [FeatureV2]>;
+def : ProcessorModel<"v2",      NDS32SchedModel, [FeatureV2]>;
+def : ProcessorModel<"v3",      NDS32SchedModel, [FeatureV3]>;
 
 def NDS32 : Target {
   let InstructionSet = NDS32InstrInfo;
