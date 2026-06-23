@@ -10,6 +10,7 @@
 #include "NDS32.h"
 #include "NDS32InstrInfo.h"
 #include "NDS32Subtarget.h"
+#include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -98,39 +99,157 @@ const char *NDS32TargetLowering::getTargetNodeName(unsigned Opcode) const {
   }
 }
 
+// NDS32 ABI2 argument registers, in order.
+static const MCPhysReg GPRArgRegs[] = {NDS32::R0, NDS32::R1, NDS32::R2,
+                                       NDS32::R3, NDS32::R4, NDS32::R5};
+
+// Set LocVT/LocInfo for an i1/i8/i16 value promoted to i32. Returns true if a
+// promotion was applied.
+static void promoteToI32(MVT &LocVT, CCValAssign::LocInfo &LocInfo,
+                         ISD::ArgFlagsTy ArgFlags) {
+  if (LocVT != MVT::i1 && LocVT != MVT::i8 && LocVT != MVT::i16)
+    return;
+  LocVT = MVT::i32;
+  if (ArgFlags.isSExt())
+    LocInfo = CCValAssign::SExt;
+  else if (ArgFlags.isZExt())
+    LocInfo = CCValAssign::ZExt;
+  else
+    LocInfo = CCValAssign::AExt;
+}
+
+// Argument calling convention. i32/pointers go in $r0-$r5 then 4-byte stack
+// slots. i64/f64 arrive pre-split into two i32 parts and are placed in an
+// EVEN-aligned register pair (consuming an odd register as padding) or an
+// 8-byte-aligned stack pair, per the Andes ABI2.
+static bool CC_NDS32(unsigned ValNo, MVT ValVT, MVT LocVT,
+                     CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
+                     Type *OrigTy, CCState &State) {
+  promoteToI32(LocVT, LocInfo, ArgFlags);
+
+  SmallVectorImpl<CCValAssign> &Pending = State.getPendingLocs();
+
+  // First half of a split i64/f64: stash it; allocate the whole pair atomically
+  // when the second (end) half arrives so even-alignment is decided as a unit.
+  if (ArgFlags.isSplit() && !ArgFlags.isSplitEnd()) {
+    Pending.push_back(CCValAssign::getPending(ValNo, ValVT, LocVT, LocInfo));
+    return false;
+  }
+
+  if (ArgFlags.isSplitEnd() && !Pending.empty()) {
+    CCValAssign First = Pending.pop_back_val();
+    MCRegister FirstReg = State.AllocateReg(GPRArgRegs);
+    if (FirstReg.isValid()) {
+      // R0..R5 are contiguous in the generated register enum.
+      if ((FirstReg.id() - NDS32::R0) & 1u)    // odd -> pad, take next (even)
+        FirstReg = State.AllocateReg(GPRArgRegs);
+      MCRegister SecondReg;
+      if (FirstReg.isValid())
+        SecondReg = State.AllocateReg(GPRArgRegs);
+      if (FirstReg.isValid() && SecondReg.isValid()) {
+        State.addLoc(CCValAssign::getReg(First.getValNo(), First.getValVT(),
+                                         FirstReg, First.getLocVT(),
+                                         First.getLocInfo()));
+        State.addLoc(CCValAssign::getReg(ValNo, ValVT, SecondReg, LocVT,
+                                         LocInfo));
+        return false;
+      }
+    }
+    // Ran out of registers mid-pair: the whole i64 goes on the 8-byte-aligned
+    // stack (no register/stack split for i64), matching Andes GCC.
+    unsigned Off = State.AllocateStack(8, Align(8));
+    State.addLoc(CCValAssign::getMem(First.getValNo(), First.getValVT(), Off,
+                                     First.getLocVT(), First.getLocInfo()));
+    State.addLoc(CCValAssign::getMem(ValNo, ValVT, Off + 4, LocVT, LocInfo));
+    return false;
+  }
+
+  // Plain i32 / coerced struct word.
+  if (unsigned Reg = State.AllocateReg(GPRArgRegs)) {
+    State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+    return false;
+  }
+  unsigned Off = State.AllocateStack(4, Align(4));
+  State.addLoc(CCValAssign::getMem(ValNo, ValVT, Off, LocVT, LocInfo));
+  return false;
+}
+
+// Return calling convention: up to two words in $r0:$r1 (i64 high in $r0).
+static bool RetCC_NDS32(unsigned ValNo, MVT ValVT, MVT LocVT,
+                        CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
+                        Type *OrigTy, CCState &State) {
+  promoteToI32(LocVT, LocInfo, ArgFlags);
+  static const MCPhysReg RetRegs[] = {NDS32::R0, NDS32::R1};
+  if (unsigned Reg = State.AllocateReg(RetRegs)) {
+    State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+    return false;
+  }
+  return true; // does not fit in the return registers
+}
+
+// Reconstruct the original-typed value from a register/stack location value
+// (truncating a value that the CC promoted to i32).
+static SDValue convertLocToVal(SelectionDAG &DAG, const SDLoc &DL,
+                               const CCValAssign &VA, SDValue Val) {
+  switch (VA.getLocInfo()) {
+  case CCValAssign::BCvt:
+    return DAG.getNode(ISD::BITCAST, DL, VA.getValVT(), Val);
+  case CCValAssign::SExt:
+  case CCValAssign::ZExt:
+  case CCValAssign::AExt:
+    if (VA.getValVT() != VA.getLocVT())
+      return DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Val);
+    return Val;
+  default:
+    return Val;
+  }
+}
+
+// Extend/bitcast an original-typed value up to its register/stack location type.
+static SDValue convertValToLoc(SelectionDAG &DAG, const SDLoc &DL,
+                               const CCValAssign &VA, SDValue Val) {
+  switch (VA.getLocInfo()) {
+  case CCValAssign::SExt:
+    return DAG.getNode(ISD::SIGN_EXTEND, DL, VA.getLocVT(), Val);
+  case CCValAssign::ZExt:
+    return DAG.getNode(ISD::ZERO_EXTEND, DL, VA.getLocVT(), Val);
+  case CCValAssign::AExt:
+    return DAG.getNode(ISD::ANY_EXTEND, DL, VA.getLocVT(), Val);
+  case CCValAssign::BCvt:
+    return DAG.getNode(ISD::BITCAST, DL, VA.getLocVT(), Val);
+  default:
+    return Val;
+  }
+}
+
 SDValue NDS32TargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
-  static const MCPhysReg ArgRegs[] = {NDS32::R0, NDS32::R1, NDS32::R2,
-                                      NDS32::R3, NDS32::R4, NDS32::R5};
-
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo &MFI = MF.getFrameInfo();
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
 
-  for (unsigned I = 0, E = Ins.size(); I != E; ++I) {
-    const ISD::InputArg &Arg = Ins[I];
-    if (Arg.VT != MVT::i32)
-      report_fatal_error("NDS32 only supports i32 arguments right now");
+  SmallVector<CCValAssign, 16> ArgLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+  CCInfo.AnalyzeFormalArguments(Ins, CC_NDS32);
 
-    if (I < 6) {
-      // Mark the incoming physical register as live-in and copy from the
-      // resulting virtual register, so the entry block records the live-in
-      // (the machine verifier rejects copying from an undefined physreg).
-      Register VReg = MF.addLiveIn(ArgRegs[I], &NDS32::GPRRegClass);
-      SDValue ArgValue = DAG.getCopyFromReg(Chain, DL, VReg, MVT::i32);
-      Chain = ArgValue.getValue(1);
-      InVals.push_back(ArgValue);
+  for (CCValAssign &VA : ArgLocs) {
+    SDValue ArgVal;
+    if (VA.isRegLoc()) {
+      // Mark the incoming physical register live-in and copy from the resulting
+      // vreg (the machine verifier rejects copying from an undefined physreg).
+      Register VReg = MF.addLiveIn(VA.getLocReg(), &NDS32::GPRRegClass);
+      ArgVal = DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT());
     } else {
-      unsigned Offset = (I - 6) * 4;
-      int FI = MFI.CreateFixedObject(4, Offset, true);
-      SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
-      SDValue LoadVal = DAG.getLoad(
-          MVT::i32, DL, Chain, FIPtr,
-          MachinePointerInfo::getFixedStack(MF, FI));
-      Chain = LoadVal.getValue(1);
-      InVals.push_back(LoadVal);
+      int FI = MFI.CreateFixedObject(VA.getLocVT().getStoreSize(),
+                                     VA.getLocMemOffset(), /*IsImmutable=*/true);
+      SDValue FIN = DAG.getFrameIndex(FI, PtrVT);
+      ArgVal = DAG.getLoad(VA.getLocVT(), DL, Chain, FIN,
+                           MachinePointerInfo::getFixedStack(MF, FI));
     }
+    Chain = ArgVal.getValue(1);
+    InVals.push_back(convertLocToVal(DAG, DL, VA, ArgVal));
   }
 
   return Chain;
@@ -141,22 +260,19 @@ SDValue NDS32TargetLowering::LowerReturn(
     const SmallVectorImpl<ISD::OutputArg> &Outs,
     const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
     SelectionDAG &DAG) const {
+  SmallVector<CCValAssign, 4> RVLocs;
+  CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
+                 *DAG.getContext());
+  CCInfo.AnalyzeReturn(Outs, RetCC_NDS32);
+
   SDValue Glue;
   SmallVector<SDValue, 4> RetOps(1, Chain);
-
-  if (Outs.size() > 2)
-    report_fatal_error("NDS32 multiple return values (>2) are not implemented yet");
-
-  static const MCPhysReg RetRegs[] = {NDS32::R0, NDS32::R1};
-
-  for (unsigned I = 0, E = Outs.size(); I != E; ++I) {
-    const ISD::OutputArg &Out = Outs[I];
-    if (Out.VT != MVT::i32)
-      report_fatal_error("NDS32 only supports i32 return parts right now");
-
-    Chain = DAG.getCopyToReg(Chain, DL, RetRegs[I], OutVals[I], Glue);
+  for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
+    CCValAssign &VA = RVLocs[I];
+    SDValue Val = convertValToLoc(DAG, DL, VA, OutVals[I]);
+    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), Val, Glue);
     Glue = Chain.getValue(1);
-    RetOps.push_back(DAG.getRegister(RetRegs[I], MVT::i32));
+    RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
   }
 
   RetOps[0] = Chain;
@@ -170,7 +286,9 @@ bool NDS32TargetLowering::CanLowerReturn(
     CallingConv::ID CallConv, MachineFunction &MF, bool IsVarArg,
     const SmallVectorImpl<ISD::OutputArg> &Outs, LLVMContext &Context,
     const Type *RetTy) const {
-  return Outs.size() <= 2;
+  SmallVector<CCValAssign, 4> RVLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, Context);
+  return CCInfo.CheckReturn(Outs, RetCC_NDS32);
 }
 
 SDValue NDS32TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
@@ -284,34 +402,30 @@ SDValue NDS32TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   IsTailCall = false;
 
-  static const MCPhysReg ArgRegs[] = {NDS32::R0, NDS32::R1, NDS32::R2,
-                                      NDS32::R3, NDS32::R4, NDS32::R5};
+  MachineFunction &MF = DAG.getMachineFunction();
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
 
-  unsigned NumStackArgs = Outs.size() > 6 ? Outs.size() - 6 : 0;
-  unsigned NumBytes = NumStackArgs * 4;
+  SmallVector<CCValAssign, 16> ArgLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+  CCInfo.AnalyzeCallOperands(Outs, CC_NDS32);
+  unsigned NumBytes = alignTo(CCInfo.getStackSize(), 8);
   Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
 
-  SmallVector<std::pair<unsigned, SDValue>, 4> RegsToPass;
-  SmallVector<std::pair<unsigned, SDValue>, 4> MemToPass;
-  SmallVector<SDValue, 4> MemOpChains;
-  for (unsigned I = 0, E = Outs.size(); I != E; ++I) {
-    SDValue Arg = OutVals[I];
-    if (I < 6) {
-      RegsToPass.push_back(std::make_pair(ArgRegs[I], Arg));
+  SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPass;
+  SmallVector<SDValue, 8> MemOpChains;
+  SDValue StackPtr;
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    CCValAssign &VA = ArgLocs[I];
+    SDValue Arg = convertValToLoc(DAG, DL, VA, OutVals[I]);
+    if (VA.isRegLoc()) {
+      RegsToPass.push_back(std::make_pair(VA.getLocReg(), Arg));
     } else {
-      MemToPass.push_back(std::make_pair((I - 6) * 4, Arg));
-    }
-  }
-
-  if (!MemToPass.empty()) {
-    SDValue StackPtr = DAG.getCopyFromReg(Chain, DL, NDS32::R31, MVT::i32);
-    for (unsigned I = 0, E = MemToPass.size(); I != E; ++I) {
-      unsigned Offset = MemToPass[I].first;
-      SDValue ArgVal = MemToPass[I].second;
-      SDValue Address = DAG.getNode(ISD::ADD, DL, MVT::i32, StackPtr,
-                                    DAG.getIntPtrConstant(Offset, DL));
+      if (!StackPtr.getNode())
+        StackPtr = DAG.getCopyFromReg(Chain, DL, NDS32::R31, PtrVT);
+      SDValue Address = DAG.getNode(ISD::ADD, DL, PtrVT, StackPtr,
+                                    DAG.getIntPtrConstant(VA.getLocMemOffset(), DL));
       MemOpChains.push_back(
-          DAG.getStore(Chain, DL, ArgVal, Address, MachinePointerInfo()));
+          DAG.getStore(Chain, DL, Arg, Address, MachinePointerInfo()));
     }
   }
 
@@ -363,20 +477,18 @@ SDValue NDS32TargetLowering::LowerCallResult(
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
 
-  if (Ins.size() > 2)
-    report_fatal_error("NDS32 multiple return values (>2) are not implemented yet");
+  SmallVector<CCValAssign, 4> RVLocs;
+  CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
+                 *DAG.getContext());
+  CCInfo.AnalyzeCallResult(Ins, RetCC_NDS32);
 
-  static const MCPhysReg RetRegs[] = {NDS32::R0, NDS32::R1};
-
-  for (unsigned I = 0, E = Ins.size(); I != E; ++I) {
-    const ISD::InputArg &In = Ins[I];
-    if (In.VT != MVT::i32)
-      report_fatal_error("NDS32 only supports i32 return parts right now");
-
-    SDValue Val = DAG.getCopyFromReg(Chain, DL, RetRegs[I], MVT::i32, InGlue);
+  for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
+    CCValAssign &VA = RVLocs[I];
+    SDValue Val =
+        DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), InGlue);
     Chain = Val.getValue(1);
     InGlue = Val.getValue(2);
-    InVals.push_back(Val);
+    InVals.push_back(convertLocToVal(DAG, DL, VA, Val));
   }
 
   return Chain;
