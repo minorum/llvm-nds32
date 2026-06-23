@@ -8,6 +8,8 @@
 
 #include "NDS32RegisterInfo.h"
 #include "NDS32.h"
+#include "NDS32FrameLowering.h"
+#include "NDS32InstrInfo.h"
 #include "NDS32Subtarget.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -63,13 +65,42 @@ bool NDS32RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                             int SPAdj, unsigned FIOperandNum,
                                             RegScavenger *RS) const {
   MachineInstr &MI = *II;
-  MachineFunction &MF = *MI.getParent()->getParent();
-  int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
-  int Offset = MF.getFrameInfo().getObjectOffset(FrameIndex) +
-               MF.getFrameInfo().getStackSize();
+  MachineBasicBlock &MBB = *MI.getParent();
+  MachineFunction &MF = *MBB.getParent();
+  const NDS32InstrInfo &TII =
+      *static_cast<const NDS32InstrInfo *>(MF.getSubtarget().getInstrInfo());
+  const NDS32FrameLowering &TFI =
+      *static_cast<const NDS32FrameLowering *>(
+          MF.getSubtarget().getFrameLowering());
 
-  MI.getOperand(FIOperandNum).ChangeToRegister(NDS32::R31, false);
-  MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
+  int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
+  // Fixed objects are reached from the frame pointer ($r28, which holds the
+  // entry stack pointer) when one is present, otherwise from $sp (the offset
+  // then includes the whole frame). The trailing immediate operand is preserved
+  // (e.g. a struct-field byte offset) rather than overwritten.
+  int64_t Offset = MF.getFrameInfo().getObjectOffset(FrameIndex) +
+                   MI.getOperand(FIOperandNum + 1).getImm();
+  Register BaseReg;
+  if (TFI.hasFP(MF)) {
+    BaseReg = NDS32::R28;
+  } else {
+    BaseReg = NDS32::R31;
+    Offset += MF.getFrameInfo().getStackSize();
+  }
+
+  // If the offset fits the instruction's signed 15-bit field, fold it directly.
+  if (isInt<15>(Offset)) {
+    MI.getOperand(FIOperandNum).ChangeToRegister(BaseReg, false);
+    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
+    return false;
+  }
+
+  // Otherwise compute the effective address into the reserved scratch register
+  // ($r15) and use a zero displacement, avoiding silent truncation.
+  const DebugLoc &DL = MI.getDebugLoc();
+  TII.addImmediate(MBB, II, DL, NDS32::R15, BaseReg, Offset);
+  MI.getOperand(FIOperandNum).ChangeToRegister(NDS32::R15, false);
+  MI.getOperand(FIOperandNum + 1).ChangeToImmediate(0);
   return false;
 }
 

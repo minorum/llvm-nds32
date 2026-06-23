@@ -245,3 +245,46 @@ bool NDS32InstrInfo::reverseBranchCondition(
   Cond[0].setImm(Opc);
   return false;
 }
+
+void NDS32InstrInfo::materializeImmediate(MachineBasicBlock &MBB,
+                                          MachineBasicBlock::iterator MBBI,
+                                          const DebugLoc &DL, Register DstReg,
+                                          int64_t Imm) const {
+  if (isInt<20>(Imm)) {
+    BuildMI(MBB, MBBI, DL, get(NDS32::MOVI), DstReg).addImm(Imm);
+    return;
+  }
+  // sethi loads imm20 << 12; ori fills the low 12 bits.
+  BuildMI(MBB, MBBI, DL, get(NDS32::SETHI), DstReg)
+      .addImm((static_cast<uint32_t>(Imm) >> 12) & 0xfffff);
+  BuildMI(MBB, MBBI, DL, get(NDS32::ORri), DstReg)
+      .addReg(DstReg)
+      .addImm(static_cast<uint32_t>(Imm) & 0xfff);
+}
+
+void NDS32InstrInfo::addImmediate(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator MBBI,
+                                  const DebugLoc &DL, Register DstReg,
+                                  Register SrcReg, int64_t Delta,
+                                  Register ScratchReg) const {
+  if (Delta == 0) {
+    if (DstReg != SrcReg)
+      BuildMI(MBB, MBBI, DL, get(NDS32::ADDri), DstReg).addReg(SrcReg).addImm(0);
+    return;
+  }
+  if (isInt<15>(Delta)) {
+    BuildMI(MBB, MBBI, DL, get(NDS32::ADDri), DstReg)
+        .addReg(SrcReg)
+        .addImm(Delta);
+    return;
+  }
+  // Out of addi range: materialize Delta into the scratch register and add by
+  // register. $r15 (the reserved assembler temp) is never allocated and so is
+  // always free here.
+  if (!ScratchReg)
+    ScratchReg = NDS32::R15;
+  materializeImmediate(MBB, MBBI, DL, ScratchReg, Delta);
+  BuildMI(MBB, MBBI, DL, get(NDS32::ADDrr), DstReg)
+      .addReg(SrcReg)
+      .addReg(ScratchReg);
+}

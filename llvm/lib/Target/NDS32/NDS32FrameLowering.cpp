@@ -31,9 +31,10 @@ void NDS32FrameLowering::emitPrologue(MachineFunction &MF,
   const NDS32InstrInfo &TII =
       *static_cast<const NDS32InstrInfo *>(MF.getSubtarget().getInstrInfo());
 
-  BuildMI(MBB, MBBI, DL, TII.get(NDS32::ADDri), NDS32::R31)
-      .addReg(NDS32::R31)
-      .addImm(-static_cast<int64_t>(StackSize));
+  // $sp -= StackSize (addImmediate materializes a frame size too large for the
+  // addi field via the reserved scratch register instead of truncating it).
+  TII.addImmediate(MBB, MBBI, DL, NDS32::R31, NDS32::R31,
+                   -static_cast<int64_t>(StackSize));
 }
 
 void NDS32FrameLowering::emitEpilogue(MachineFunction &MF,
@@ -47,9 +48,9 @@ void NDS32FrameLowering::emitEpilogue(MachineFunction &MF,
   const NDS32InstrInfo &TII =
       *static_cast<const NDS32InstrInfo *>(MF.getSubtarget().getInstrInfo());
 
-  BuildMI(MBB, MBBI, DL, TII.get(NDS32::ADDri), NDS32::R31)
-      .addReg(NDS32::R31)
-      .addImm(StackSize);
+  // $sp += StackSize (materialized via the scratch register if too large).
+  TII.addImmediate(MBB, MBBI, DL, NDS32::R31, NDS32::R31,
+                   static_cast<int64_t>(StackSize));
 }
 
 MachineBasicBlock::iterator NDS32FrameLowering::eliminateCallFramePseudoInstr(
@@ -61,15 +62,9 @@ MachineBasicBlock::iterator NDS32FrameLowering::eliminateCallFramePseudoInstr(
     int64_t Amount = I->getOperand(0).getImm();
     if (Amount != 0) {
       Amount = alignTo(Amount, getStackAlign());
-      if (I->getOpcode() == NDS32::ADJCALLSTACKDOWN) {
-        BuildMI(MBB, I, I->getDebugLoc(), TII.get(NDS32::ADDri), NDS32::R31)
-            .addReg(NDS32::R31)
-            .addImm(-Amount);
-      } else {
-        BuildMI(MBB, I, I->getDebugLoc(), TII.get(NDS32::ADDri), NDS32::R31)
-            .addReg(NDS32::R31)
-            .addImm(Amount);
-      }
+      if (I->getOpcode() == NDS32::ADJCALLSTACKDOWN)
+        Amount = -Amount;
+      TII.addImmediate(MBB, I, I->getDebugLoc(), NDS32::R31, NDS32::R31, Amount);
     }
   }
   return MBB.erase(I);

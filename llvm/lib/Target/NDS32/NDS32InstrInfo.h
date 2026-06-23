@@ -62,6 +62,20 @@ public:
 
   bool reverseBranchCondition(
       SmallVectorImpl<MachineOperand> &Cond) const override;
+
+  // Materialize an arbitrary 32-bit immediate into DstReg: a single movi when
+  // it fits the signed 20-bit field, otherwise sethi(hi20)+ori(lo12).
+  void materializeImmediate(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator MBBI, const DebugLoc &DL,
+                            Register DstReg, int64_t Imm) const;
+
+  // Emit DstReg = SrcReg + Delta, using a single addi when Delta fits the
+  // signed 15-bit field, otherwise materializing Delta into ScratchReg and
+  // adding by register. ScratchReg defaults to the reserved assembler temp
+  // ($r15) when left empty.
+  void addImmediate(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
+                    const DebugLoc &DL, Register DstReg, Register SrcReg,
+                    int64_t Delta, Register ScratchReg = Register()) const;
 };
 
 } // namespace llvm
