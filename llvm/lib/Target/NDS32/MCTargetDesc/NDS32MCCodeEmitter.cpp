@@ -169,8 +169,9 @@ void NDS32MCCodeEmitter::encodeInstruction(
     Bits = 0x4a007820;
     break;
   case NDS32::MOVI:
+    // movi takes a signed 20-bit immediate (field [19:0]).
     Bits = 0x44000000 | (getReg(MI.getOperand(0)) << 20) |
-           getImm16(MI, MI.getOperand(1), Fixups, STI);
+           getImm20(MI, MI.getOperand(1), Fixups, STI);
     break;
   case NDS32::SETHI:
     Bits = 0x46000000 | (getReg(MI.getOperand(0)) << 20) |

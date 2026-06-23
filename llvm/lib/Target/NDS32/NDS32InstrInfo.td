@@ -52,6 +52,28 @@ def memri16 : Operand<i32> {
 
 def addr : ComplexPattern<iPTR, 2, "selectMemAddr", [frameindex]>;
 
+// Immediate-range predicates matching each instruction's encoded field width
+// (verified against the Andes assembler): addi/slti/sltsi take a signed 15-bit
+// immediate, the logical-immediate ops a zero-extended unsigned 15-bit one, and
+// movi a signed 20-bit one. An immediate outside its instruction's range must
+// be materialized into a register instead of being silently truncated, so each
+// immediate-form pattern is gated on the matching predicate; out-of-range
+// constants fall back to constant materialization + the register-form op.
+def simm15 : PatLeaf<(imm), [{ return isInt<15>(N->getSExtValue()); }]>;
+def uimm15 : PatLeaf<(imm), [{ return isUInt<15>(N->getZExtValue()); }]>;
+def simm20 : PatLeaf<(imm), [{ return isInt<20>(N->getSExtValue()); }]>;
+
+// Constants too wide for movi are built as sethi(hi20)+ori(lo12).
+def imm_hi20 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((N->getZExtValue() >> 12) & 0xfffff,
+                                   SDLoc(N), MVT::i32);
+}]>;
+def imm_lo12 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getZExtValue() & 0xfff, SDLoc(N),
+                                   MVT::i32);
+}]>;
+def imm_wide : PatLeaf<(imm), [{ return !isInt<20>(N->getSExtValue()); }]>;
+
 // Minimal instructions for skeleton compilation
 def NOP : NDS32Inst<(outs), (ins), "nop", []>;
 
@@ -61,7 +83,7 @@ def SETHI : NDS32Inst<(outs GPR:$dst), (ins sethi_imm:$imm),
 
 def MOVI : NDS32Inst<(outs GPR:$dst), (ins i32imm:$imm),
                      "movi\t$dst, $imm",
-                     [(set GPR:$dst, imm:$imm)]>;
+                     [(set GPR:$dst, simm20:$imm)]>;
 
 def ADDrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
                       "add\t$dst, $lhs, $rhs",
@@ -69,7 +91,7 @@ def ADDrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
 
 def ADDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "addi\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (add GPR:$lhs, imm:$imm))]>;
+                      [(set GPR:$dst, (add GPR:$lhs, simm15:$imm))]>;
 
 def SUBrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
                       "sub\t$dst, $lhs, $rhs",
@@ -162,7 +184,7 @@ def MSUBR32 : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$a, GPR:$b),
 
 def ANDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "andi\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (and GPR:$lhs, imm:$imm))]>;
+                      [(set GPR:$dst, (and GPR:$lhs, uimm15:$imm))]>;
 
 // bitci rt, ra, #imm15: rt = ra & ~zext(imm15). Matches an AND with a constant
 // whose complement fits in 15 unsigned bits (i.e. only low bits are cleared),
@@ -180,11 +202,11 @@ def BITCI : NDS32Inst<(outs GPR:$dst), (ins GPR:$ra, i32imm:$imm),
 
 def ORri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                      "ori\t$dst, $lhs, $imm",
-                     [(set GPR:$dst, (or GPR:$lhs, imm:$imm))]>;
+                     [(set GPR:$dst, (or GPR:$lhs, uimm15:$imm))]>;
 
 def XORri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "xori\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (xor GPR:$lhs, imm:$imm))]>;
+                      [(set GPR:$dst, (xor GPR:$lhs, uimm15:$imm))]>;
 
 def SLLIri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                        "slli\t$dst, $lhs, $imm",
@@ -208,11 +230,11 @@ def SLTS : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
 
 def SLTI : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                      "slti\t$dst, $lhs, $imm",
-                     [(set GPR:$dst, (setcc GPR:$lhs, imm:$imm, SETULT))]>;
+                     [(set GPR:$dst, (setcc GPR:$lhs, simm15:$imm, SETULT))]>;
 
 def SLTSI : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "sltsi\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (setcc GPR:$lhs, imm:$imm, SETLT))]>;
+                      [(set GPR:$dst, (setcc GPR:$lhs, simm15:$imm, SETLT))]>;
 
 def LWI : NDS32Inst<(outs GPR:$dst), (ins memri:$addr),
                     "lwi\t$dst, [$addr]",
@@ -356,3 +378,8 @@ def : Pat<(NDS32call GPR:$dst), (JRAL GPR:$dst)>;
 // Division instructions produce quotient and remainder together.
 def : Pat<(sdivrem GPR:$lhs, GPR:$rhs), (DIVSR GPR:$lhs, GPR:$rhs)>;
 def : Pat<(udivrem GPR:$lhs, GPR:$rhs), (DIVR GPR:$lhs, GPR:$rhs)>;
+
+// A constant wider than movi's signed 20-bit field: sethi the high 20 bits then
+// ori the low 12. (SETHI loads imm20 << 12; ori fills bits [11:0].)
+def : Pat<(i32 imm_wide:$imm),
+          (ORri (SETHI (imm_hi20 imm:$imm)), (imm_lo12 imm:$imm))>;
