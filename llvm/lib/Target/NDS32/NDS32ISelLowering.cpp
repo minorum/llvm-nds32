@@ -9,6 +9,7 @@
 #include "NDS32ISelLowering.h"
 #include "NDS32.h"
 #include "NDS32InstrInfo.h"
+#include "NDS32MachineFunctionInfo.h"
 #include "NDS32Subtarget.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -77,6 +78,10 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
   // Frame/return address builtins.
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
+  // Varargs: VASTART stores the save-area address; the rest expand against the
+  // char* va_list.
+  setOperationAction(ISD::VASTART, MVT::Other, Custom);
+  setOperationAction({ISD::VAARG, ISD::VACOPY, ISD::VAEND}, MVT::Other, Expand);
   // SELECT expands to SELECT_CC, which we lower to a control-flow diamond via
   // a custom inserter. (Leaving SELECT_CC as Expand too would loop forever:
   // SELECT -> SELECT_CC -> nowhere.)
@@ -262,6 +267,42 @@ SDValue NDS32TargetLowering::LowerFormalArguments(
     InVals.push_back(convertLocToVal(DAG, DL, VA, ArgVal));
   }
 
+  if (IsVarArg) {
+    // Spill the argument registers not consumed by named arguments into a save
+    // area placed immediately below the incoming stack-argument area (negative
+    // offsets), so register- and stack-passed variadic arguments form one
+    // contiguous block that va_arg can walk. va_list (a char*) starts at the
+    // first unnamed argument.
+    auto *FuncInfo = MF.getInfo<NDS32MachineFunctionInfo>();
+    unsigned NumGPRs = std::size(GPRArgRegs);
+    unsigned Idx = CCInfo.getFirstUnallocated(GPRArgRegs);
+
+    int FirstFI;
+    if (Idx == NumGPRs) {
+      // All argument registers were used by named arguments; the first variadic
+      // argument is the next incoming stack slot.
+      FirstFI = MFI.CreateFixedObject(4, CCInfo.getStackSize(),
+                                      /*IsImmutable=*/true);
+    } else {
+      SmallVector<SDValue, 6> Stores;
+      FirstFI = 0;
+      for (unsigned I = Idx; I < NumGPRs; ++I) {
+        int Off = -static_cast<int>((NumGPRs - I) * 4);
+        int FI = MFI.CreateFixedObject(4, Off, /*IsImmutable=*/true);
+        if (I == Idx)
+          FirstFI = FI;
+        Register VReg = MF.addLiveIn(GPRArgRegs[I], &NDS32::GPRRegClass);
+        SDValue Val = DAG.getCopyFromReg(Chain, DL, VReg, MVT::i32);
+        SDValue Addr = DAG.getFrameIndex(FI, PtrVT);
+        Stores.push_back(DAG.getStore(
+            Chain, DL, Val, Addr, MachinePointerInfo::getFixedStack(MF, FI)));
+      }
+      if (!Stores.empty())
+        Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
+    }
+    FuncInfo->setVarArgsFrameIndex(FirstFI);
+  }
+
   return Chain;
 }
 
@@ -323,6 +364,8 @@ SDValue NDS32TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const
     return LowerFRAMEADDR(Op, DAG);
   case ISD::RETURNADDR:
     return LowerRETURNADDR(Op, DAG);
+  case ISD::VASTART:
+    return LowerVASTART(Op, DAG);
   case ISD::CALLSEQ_START:
   case ISD::CALLSEQ_END:
     return Op;
@@ -808,6 +851,18 @@ SDValue NDS32TargetLowering::LowerSELECT_CC(SDValue Op,
 
   return DAG.getNode(NDS32ISD::SELECT_CC, DL, Op.getValueType(), Cond, TrueV,
                      FalseV);
+}
+
+SDValue NDS32TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  auto *FuncInfo = MF.getInfo<NDS32MachineFunctionInfo>();
+  SDLoc DL(Op);
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  // Store the address of the first variadic argument into the va_list object.
+  SDValue FR = DAG.getFrameIndex(FuncInfo->getVarArgsFrameIndex(), PtrVT);
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), DL, FR, Op.getOperand(1),
+                      MachinePointerInfo(SV));
 }
 
 SDValue NDS32TargetLowering::LowerFRAMEADDR(SDValue Op,

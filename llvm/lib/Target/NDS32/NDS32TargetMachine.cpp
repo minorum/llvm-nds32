@@ -8,6 +8,7 @@
 
 #include "NDS32TargetMachine.h"
 #include "NDS32.h"
+#include "NDS32MachineFunctionInfo.h"
 #include "TargetInfo/NDS32TargetInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -76,4 +77,11 @@ public:
 
 TargetPassConfig *NDS32TargetMachine::createPassConfig(PassManagerBase &PM) {
   return new NDS32PassConfig(*this, PM);
+}
+
+MachineFunctionInfo *NDS32TargetMachine::createMachineFunctionInfo(
+    BumpPtrAllocator &Allocator, const Function &F,
+    const TargetSubtargetInfo *STI) const {
+  return NDS32MachineFunctionInfo::create<NDS32MachineFunctionInfo>(Allocator, F,
+                                                                    STI);
 }
