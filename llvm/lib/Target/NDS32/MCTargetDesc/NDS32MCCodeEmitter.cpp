@@ -439,6 +439,34 @@ void NDS32MCCodeEmitter::encodeInstruction(
            (getReg(MI.getOperand(1)) << 15) |
            (static_cast<uint32_t>(MI.getOperand(2).getImm()) & 0x7fff);
     break;
+  // Register-offset memory: base + (index << scale). Operands for loads are
+  // rt(0), base(1), index(2), scale(3); for stores rt(0) is the value with the
+  // same base/index/scale ordering.
+  case NDS32::LW_RR:
+  case NDS32::LB_RR:
+  case NDS32::LBS_RR:
+  case NDS32::LH_RR:
+  case NDS32::LHS_RR:
+  case NDS32::SW_RR:
+  case NDS32::SB_RR:
+  case NDS32::SH_RR: {
+    uint32_t Sub;
+    switch (MI.getOpcode()) {
+    case NDS32::LB_RR:  Sub = 0x00; break;
+    case NDS32::LH_RR:  Sub = 0x01; break;
+    case NDS32::LW_RR:  Sub = 0x02; break;
+    case NDS32::LBS_RR: Sub = 0x10; break;
+    case NDS32::LHS_RR: Sub = 0x11; break;
+    case NDS32::SB_RR:  Sub = 0x08; break;
+    case NDS32::SH_RR:  Sub = 0x09; break;
+    default:            Sub = 0x0a; break; // SW_RR
+    }
+    uint32_t Scale = static_cast<uint32_t>(MI.getOperand(3).getImm()) & 0x3;
+    Bits = 0x38000000 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15) |
+           (getReg(MI.getOperand(2)) << 10) | (Scale << 8) | Sub;
+    break;
+  }
   default:
     report_fatal_error("NDS32 instruction encoding is not implemented");
   }

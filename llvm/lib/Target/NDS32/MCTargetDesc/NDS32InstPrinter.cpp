@@ -73,3 +73,17 @@ void NDS32InstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo,
   OS << " + ";
   printOperand(MI, OpNo + 1, OS);
 }
+
+void NDS32InstPrinter::printRegOffsetMem(const MCInst *MI, unsigned OpNo,
+                                         raw_ostream &OS,
+                                         const char *Modifier) {
+  assert((Modifier == nullptr || Modifier[0] == 0) &&
+         "NDS32 does not currently support memory operand modifiers");
+  // base + (index << scale)
+  printOperand(MI, OpNo, OS);
+  OS << " + ";
+  printOperand(MI, OpNo + 1, OS);
+  int64_t Scale = MI->getOperand(OpNo + 2).getImm();
+  if (Scale)
+    OS << " << " << Scale;
+}

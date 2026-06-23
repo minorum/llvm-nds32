@@ -19,6 +19,8 @@ public:
       : SelectionDAGISel(TM, OptLevel) {}
 
   bool selectMemAddr(SDValue Addr, SDValue &Base, SDValue &Offset);
+  bool selectRegOffsetAddr(SDValue Addr, SDValue &Base, SDValue &Index,
+                           SDValue &Scale);
 
   // Lower an inline-asm "m"/"o" memory operand into the backend's native
   // base+offset addressing pair, reusing selectMemAddr. The two operands are
@@ -100,6 +102,42 @@ bool NDS32DAGToDAGISel::selectMemAddr(SDValue Addr, SDValue &Base,
 
   Base = Addr;
   Offset = CurDAG->getTargetConstant(0, DL, MVT::i32);
+  return true;
+}
+
+// Match "base + index" or "base + (index << sv)" (sv in 0..3) for the
+// register-offset load/store forms (lw [$ra + $rb << sv]). A constant or
+// frame-index operand is left to selectMemAddr's base+immediate form.
+bool NDS32DAGToDAGISel::selectRegOffsetAddr(SDValue Addr, SDValue &Base,
+                                            SDValue &Index, SDValue &Scale) {
+  if (Addr.getOpcode() != ISD::ADD)
+    return false;
+  SDLoc DL(Addr);
+  SDValue LHS = Addr.getOperand(0);
+  SDValue RHS = Addr.getOperand(1);
+
+  auto tryShift = [&](SDValue ShlSide, SDValue OtherSide) {
+    if (ShlSide.getOpcode() != ISD::SHL)
+      return false;
+    auto *CN = dyn_cast<ConstantSDNode>(ShlSide.getOperand(1));
+    if (!CN || CN->getZExtValue() > 3)
+      return false;
+    Base = OtherSide;
+    Index = ShlSide.getOperand(0);
+    Scale = CurDAG->getTargetConstant(CN->getZExtValue(), DL, MVT::i32);
+    return true;
+  };
+  if (tryShift(RHS, LHS) || tryShift(LHS, RHS))
+    return true;
+
+  // Plain "base + index" (scale 0). Leave constant/frame-index addends to the
+  // base+immediate form.
+  if (isa<ConstantSDNode>(LHS) || isa<ConstantSDNode>(RHS) ||
+      isa<FrameIndexSDNode>(LHS) || isa<FrameIndexSDNode>(RHS))
+    return false;
+  Base = LHS;
+  Index = RHS;
+  Scale = CurDAG->getTargetConstant(0, DL, MVT::i32);
   return true;
 }
 

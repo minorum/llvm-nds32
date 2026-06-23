@@ -36,6 +36,8 @@ public:
                     const char *Modifier = nullptr);
   void printMemOperand(const MCInst *MI, unsigned OpNo, raw_ostream &OS,
                        const char *Modifier = nullptr);
+  void printRegOffsetMem(const MCInst *MI, unsigned OpNo, raw_ostream &OS,
+                         const char *Modifier = nullptr);
 };
 
 } // end namespace llvm

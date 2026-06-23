@@ -52,6 +52,13 @@ def memri16 : Operand<i32> {
 
 def addr : ComplexPattern<iPTR, 2, "selectMemAddr", [frameindex]>;
 
+// Register-offset addressing: base register + (index << scale), scale in 0..3.
+def memrr : Operand<i32> {
+  let PrintMethod = "printRegOffsetMem";
+  let MIOperandInfo = (ops GPR, GPR, i32imm);
+}
+def regoaddr : ComplexPattern<iPTR, 3, "selectRegOffsetAddr", []>;
+
 // Immediate-range predicates matching each instruction's encoded field width
 // (verified against the Andes assembler): addi/slti/sltsi take a signed 15-bit
 // immediate, the logical-immediate ops a zero-extended unsigned 15-bit one, and
@@ -267,6 +274,35 @@ def SBI : NDS32Inst<(outs), (ins GPR:$src, memri8:$addr),
 def SHI : NDS32Inst<(outs), (ins GPR:$src, memri16:$addr),
                     "shi\t$src, [$addr]",
                     [(truncstorei16 GPR:$src, addr:$addr)]>;
+
+// Register-offset loads and stores: address = base + (index << scale).
+def LW_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
+                      "lw\t$rt, [$addr]",
+                      [(set GPR:$rt, (load regoaddr:$addr))]>;
+def LB_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
+                      "lb\t$rt, [$addr]",
+                      [(set GPR:$rt, (zextloadi8 regoaddr:$addr))]>;
+def LBS_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
+                       "lbs\t$rt, [$addr]",
+                       [(set GPR:$rt, (sextloadi8 regoaddr:$addr))]>;
+def LH_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
+                      "lh\t$rt, [$addr]",
+                      [(set GPR:$rt, (zextloadi16 regoaddr:$addr))]>;
+def LHS_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
+                       "lhs\t$rt, [$addr]",
+                       [(set GPR:$rt, (sextloadi16 regoaddr:$addr))]>;
+def SW_RR : NDS32Inst<(outs), (ins GPR:$rt, memrr:$addr),
+                      "sw\t$rt, [$addr]",
+                      [(store GPR:$rt, regoaddr:$addr)]>;
+def SB_RR : NDS32Inst<(outs), (ins GPR:$rt, memrr:$addr),
+                      "sb\t$rt, [$addr]",
+                      [(truncstorei8 GPR:$rt, regoaddr:$addr)]>;
+def SH_RR : NDS32Inst<(outs), (ins GPR:$rt, memrr:$addr),
+                      "sh\t$rt, [$addr]",
+                      [(truncstorei16 GPR:$rt, regoaddr:$addr)]>;
+def : Pat<(i32 (extloadi8 regoaddr:$addr)),  (LB_RR memrr:$addr)>;
+def : Pat<(i32 (extloadi16 regoaddr:$addr)), (LH_RR memrr:$addr)>;
+def : Pat<(i32 (extloadi1 regoaddr:$addr)),  (LB_RR memrr:$addr)>;
 
 // Any-extending narrow loads (don't care about the high bits): reuse the
 // zero-extending byte/halfword loads.
