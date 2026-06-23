@@ -140,6 +140,24 @@ void NDS32AsmPrinter::emitInstruction(const MachineInstr *MI) {
       case NDS32II::MO_LO12S2:
         Spec = NDS32::S_LO12S2;
         break;
+      case NDS32II::MO_GOTOFF_HI20:
+        Spec = NDS32::S_GOTOFF_HI20;
+        break;
+      case NDS32II::MO_GOTOFF_LO12:
+        Spec = NDS32::S_GOTOFF_LO12;
+        break;
+      case NDS32II::MO_GOT_HI20:
+        Spec = NDS32::S_GOT_HI20;
+        break;
+      case NDS32II::MO_GOT_LO12:
+        Spec = NDS32::S_GOT_LO12;
+        break;
+      case NDS32II::MO_TLS_LE_HI20:
+        Spec = NDS32::S_TLS_LE_HI20;
+        break;
+      case NDS32II::MO_TLS_LE_LO12:
+        Spec = NDS32::S_TLS_LE_LO12;
+        break;
       default:
         Spec = NDS32::S_None;
         break;

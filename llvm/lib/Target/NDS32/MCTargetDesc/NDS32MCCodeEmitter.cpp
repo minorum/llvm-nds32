@@ -78,6 +78,15 @@ uint32_t NDS32MCCodeEmitter::getImm16(const MCInst &MI, const MCOperand &Op,
     case NDS32::S_LO12S2:
       Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_lo12s2);
       break;
+    case NDS32::S_GOTOFF_LO12:
+      Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_gotoff_lo12);
+      break;
+    case NDS32::S_GOT_LO12:
+      Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_got_lo12);
+      break;
+    case NDS32::S_TLS_LE_LO12:
+      Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_tls_le_lo12);
+      break;
     default:
       llvm_unreachable("unsupported NDS32 specifier");
     }
@@ -97,8 +106,22 @@ uint32_t NDS32MCCodeEmitter::getImm20(const MCInst &MI, const MCOperand &Op,
   assert(Op.isExpr() && "expected immediate or expression operand");
   MCFixupKind Kind = MCFixupKind(0);
   if (const auto *SE = dyn_cast<MCSpecifierExpr>(Op.getExpr())) {
-    if (SE->getSpecifier() == NDS32::S_HI20)
+    switch (SE->getSpecifier()) {
+    case NDS32::S_HI20:
       Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_hi20);
+      break;
+    case NDS32::S_GOTOFF_HI20:
+      Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_gotoff_hi20);
+      break;
+    case NDS32::S_GOT_HI20:
+      Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_got_hi20);
+      break;
+    case NDS32::S_TLS_LE_HI20:
+      Kind = static_cast<MCFixupKind>(NDS32::fixup_nds32_tls_le_hi20);
+      break;
+    default:
+      break;
+    }
   }
   if (Kind != 0) {
     Fixups.push_back(MCFixup::create(0, Op.getExpr(), Kind));

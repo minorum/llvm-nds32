@@ -54,7 +54,13 @@ NDS32AsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
     {"fixup_nds32_25_pcrel", 0, 25, 0},
     {"fixup_nds32_hi20",     0, 20, 0},
     {"fixup_nds32_lo12s0",   0, 12, 0},
-    {"fixup_nds32_lo12s2",   0, 12, 0}
+    {"fixup_nds32_lo12s2",   0, 12, 0},
+    {"fixup_nds32_gotoff_hi20", 0, 20, 0},
+    {"fixup_nds32_gotoff_lo12", 0, 15, 0},
+    {"fixup_nds32_got_hi20",    0, 20, 0},
+    {"fixup_nds32_got_lo12",    0, 15, 0},
+    {"fixup_nds32_tls_le_hi20", 0, 20, 0},
+    {"fixup_nds32_tls_le_lo12", 0, 15, 0}
   };
 
   static_assert((std::size(Infos)) == NDS32::NumTargetFixupKinds,
@@ -108,6 +114,20 @@ void NDS32AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
     case NDS32::fixup_nds32_lo12s2:
       Value = (Value & 0x00000fff) >> 2;
       Mask = 0x00007fff; // offset15 in words in lwi/swi
+      break;
+    // PIC fixups are always resolved by the linker (Value == 0 here), but mask
+    // the same fields as their absolute counterparts for completeness.
+    case NDS32::fixup_nds32_gotoff_hi20:
+    case NDS32::fixup_nds32_got_hi20:
+    case NDS32::fixup_nds32_tls_le_hi20:
+      Value = (Value >> 12) & 0x000fffff;
+      Mask = 0x000fffff;
+      break;
+    case NDS32::fixup_nds32_gotoff_lo12:
+    case NDS32::fixup_nds32_got_lo12:
+    case NDS32::fixup_nds32_tls_le_lo12:
+      Value = Value & 0x00007fff; // ori imm15
+      Mask = 0x00007fff;
       break;
     default:
       llvm_unreachable("Invalid target fixup kind");

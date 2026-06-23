@@ -26,6 +26,13 @@ enum Fixups {
   fixup_nds32_lo12s0,
   // A 12-bit absolute fixup for lwi/swi low offset (word aligned)
   fixup_nds32_lo12s2,
+  // PIC fixups (append-only): GOT-base-relative and GOT-entry offsets.
+  fixup_nds32_gotoff_hi20,
+  fixup_nds32_gotoff_lo12,
+  fixup_nds32_got_hi20,
+  fixup_nds32_got_lo12,
+  fixup_nds32_tls_le_hi20,
+  fixup_nds32_tls_le_lo12,
 
   LastTargetFixupKind,
   NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind

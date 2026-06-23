@@ -34,6 +34,13 @@ enum Specifier {
   S_HI20,    // hi20(sym)
   S_LO12S0,  // lo12(sym), byte-addressed
   S_LO12S2,  // lo12(sym), word-addressed (lwi/swi)
+  // PIC specifiers (append-only).
+  S_GOTOFF_HI20, // hi20(gotoff(sym))
+  S_GOTOFF_LO12, // lo12(gotoff(sym))
+  S_GOT_HI20,    // hi20(got(sym))
+  S_GOT_LO12,    // lo12(got(sym))
+  S_TLS_LE_HI20, // hi20(tpoff(sym))
+  S_TLS_LE_LO12, // lo12(tpoff(sym))
 };
 
 StringRef getSpecifierName(uint16_t S);

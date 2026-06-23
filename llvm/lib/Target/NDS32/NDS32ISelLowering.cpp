@@ -26,6 +26,7 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
     : TargetLowering(TM, STI) {
   addRegisterClass(MVT::i32, &NDS32::GPRRegClass);
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
+  setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
   setOperationAction(ISD::ExternalSymbol, MVT::i32, Custom);
   setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
   setOperationAction(ISD::CALLSEQ_START, MVT::Other, Custom);
@@ -395,6 +396,8 @@ SDValue NDS32TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const
   switch (Op.getOpcode()) {
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
+  case ISD::GlobalTLSAddress:
+    return LowerGlobalTLSAddress(Op, DAG);
   case ISD::ExternalSymbol:
     return LowerExternalSymbol(Op, DAG);
   case ISD::ConstantPool:
@@ -431,6 +434,40 @@ SDValue NDS32TargetLowering::LowerGlobalAddress(SDValue Op,
   int64_t Offset = GN->getOffset();
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
 
+  if (isPositionIndependent()) {
+    // $gp ($r29) holds the GOT base (established by the loader/startup code).
+    SDValue GP = DAG.getRegister(NDS32::R29, PtrVT);
+    auto wrap = [&](unsigned HiFlag, unsigned LoFlag, int64_t Off) {
+      SDValue Hi = DAG.getTargetGlobalAddress(GV, DL, PtrVT, Off, HiFlag);
+      SDValue Lo = DAG.getTargetGlobalAddress(GV, DL, PtrVT, Off, LoFlag);
+      // sethi(hi20) then ori(lo12) — ori (not addi) so the low half is not
+      // sign-extended into the high part.
+      return DAG.getNode(ISD::OR, DL, PtrVT,
+                         DAG.getNode(NDS32ISD::Wrapper, DL, PtrVT, Hi),
+                         DAG.getNode(NDS32ISD::Wrapper, DL, PtrVT, Lo));
+    };
+
+    if (getTargetMachine().shouldAssumeDSOLocal(GV)) {
+      // Local symbol: address = $gp + GOTOFF(sym).
+      SDValue GOTOff =
+          wrap(NDS32II::MO_GOTOFF_HI20, NDS32II::MO_GOTOFF_LO12, Offset);
+      return DAG.getNode(ISD::ADD, DL, PtrVT, GP, GOTOff);
+    }
+
+    // Preemptible symbol: load the address from its GOT entry at $gp + GOT(sym),
+    // then add any constant offset.
+    SDValue Entry = DAG.getNode(ISD::ADD, DL, PtrVT, GP,
+                                wrap(NDS32II::MO_GOT_HI20,
+                                     NDS32II::MO_GOT_LO12, /*Off=*/0));
+    SDValue Addr = DAG.getLoad(
+        PtrVT, DL, DAG.getEntryNode(), Entry,
+        MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    if (Offset)
+      Addr = DAG.getNode(ISD::ADD, DL, PtrVT, Addr,
+                         DAG.getSignedConstant(Offset, DL, PtrVT));
+    return Addr;
+  }
+
   SDValue Hi = DAG.getTargetGlobalAddress(GV, DL, PtrVT, Offset, NDS32II::MO_HI20);
   SDValue Lo = DAG.getTargetGlobalAddress(GV, DL, PtrVT, Offset, NDS32II::MO_LO12S0);
 
@@ -438,6 +475,26 @@ SDValue NDS32TargetLowering::LowerGlobalAddress(SDValue Op,
   // ADD(Wrapper(HI20), Wrapper(LO12S0)) → SETHI + ADDri via tablegen patterns.
   return DAG.getNode(ISD::ADD, DL, PtrVT, HiNode,
                      DAG.getNode(NDS32ISD::Wrapper, DL, PtrVT, Lo));
+}
+
+SDValue NDS32TargetLowering::LowerGlobalTLSAddress(SDValue Op,
+                                                   SelectionDAG &DAG) const {
+  const GlobalAddressSDNode *GN = cast<GlobalAddressSDNode>(Op);
+  SDLoc DL(Op);
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  const GlobalValue *GV = GN->getGlobal();
+
+  // Local-exec model: address = $tp ($r25) + tpoff(sym), built as
+  // sethi(tls_le_hi20) + ori(tls_le_lo12) added to the thread pointer.
+  SDValue Hi =
+      DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, NDS32II::MO_TLS_LE_HI20);
+  SDValue Lo =
+      DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, NDS32II::MO_TLS_LE_LO12);
+  SDValue Off = DAG.getNode(ISD::OR, DL, PtrVT,
+                            DAG.getNode(NDS32ISD::Wrapper, DL, PtrVT, Hi),
+                            DAG.getNode(NDS32ISD::Wrapper, DL, PtrVT, Lo));
+  SDValue TP = DAG.getRegister(NDS32::R25, PtrVT);
+  return DAG.getNode(ISD::ADD, DL, PtrVT, TP, Off);
 }
 
 SDValue NDS32TargetLowering::LowerConstantPool(SDValue Op,

@@ -41,7 +41,16 @@ enum TOF {
   MO_NO_FLAG = 0,
   MO_HI20,
   MO_LO12S0,
-  MO_LO12S2
+  MO_LO12S2,
+  // PIC relocations (append-only). GOTOFF: a symbol's offset from the GOT base
+  // ($gp); GOT: the offset of the symbol's GOT entry from $gp.
+  MO_GOTOFF_HI20,
+  MO_GOTOFF_LO12,
+  MO_GOT_HI20,
+  MO_GOT_LO12,
+  // Thread-local storage, local-exec model: offset from the thread pointer.
+  MO_TLS_LE_HI20,
+  MO_TLS_LE_LO12,
 };
 } // namespace NDS32II
 

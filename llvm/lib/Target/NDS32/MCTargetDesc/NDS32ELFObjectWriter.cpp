@@ -24,6 +24,13 @@ enum NDS32Relocs {
   R_NDS32_HI20_RELA = 26,
   R_NDS32_LO12S2_RELA = 28,
   R_NDS32_LO12S0_RELA = 30,
+  // PIC relocations (binutils-authoritative numbers).
+  R_NDS32_GOT_HI20 = 45,
+  R_NDS32_GOT_LO12 = 46,
+  R_NDS32_GOTOFF_HI20 = 49,
+  R_NDS32_GOTOFF_LO12 = 50,
+  R_NDS32_TLS_LE_HI20 = 98,
+  R_NDS32_TLS_LE_LO12 = 99,
 };
 
 class NDS32ELFObjectWriter : public MCELFObjectTargetWriter {
@@ -56,6 +63,18 @@ unsigned NDS32ELFObjectWriter::getRelocType(const MCFixup &Fixup,
       return R_NDS32_LO12S0_RELA;
     case NDS32::fixup_nds32_lo12s2:
       return R_NDS32_LO12S2_RELA;
+    case NDS32::fixup_nds32_gotoff_hi20:
+      return R_NDS32_GOTOFF_HI20;
+    case NDS32::fixup_nds32_gotoff_lo12:
+      return R_NDS32_GOTOFF_LO12;
+    case NDS32::fixup_nds32_got_hi20:
+      return R_NDS32_GOT_HI20;
+    case NDS32::fixup_nds32_got_lo12:
+      return R_NDS32_GOT_LO12;
+    case NDS32::fixup_nds32_tls_le_hi20:
+      return R_NDS32_TLS_LE_HI20;
+    case NDS32::fixup_nds32_tls_le_lo12:
+      return R_NDS32_TLS_LE_LO12;
     default:
       llvm_unreachable("Invalid target fixup kind");
     }

@@ -419,10 +419,18 @@ def : Pat<(NDS32wrapper tglobaladdr:$imm), (SETHI tglobaladdr:$imm)>;
 def : Pat<(NDS32wrapper texternalsym:$imm), (SETHI texternalsym:$imm)>;
 def : Pat<(NDS32wrapper tconstpool:$imm), (SETHI tconstpool:$imm)>;
 def : Pat<(NDS32wrapper tjumptable:$imm), (SETHI tjumptable:$imm)>;
+// TLS (thread-local) symbols use the same sethi/ori address build.
+def : Pat<(NDS32wrapper tglobaltlsaddr:$imm), (SETHI tglobaltlsaddr:$imm)>;
+def : Pat<(or GPR:$lhs, (NDS32wrapper tglobaltlsaddr:$imm)),
+          (ORri GPR:$lhs, tglobaltlsaddr:$imm)>;
 
 // ADDri patterns for global-address lower-half (address computation).
 def : Pat<(add GPR:$lhs, (NDS32wrapper tglobaladdr:$imm)),
           (ADDri GPR:$lhs, tglobaladdr:$imm)>;
+// ORri form used for the PIC GOT/GOTOFF lower-half (ori, not addi, so the low
+// 12 bits are not sign-extended into the high part).
+def : Pat<(or GPR:$lhs, (NDS32wrapper tglobaladdr:$imm)),
+          (ORri GPR:$lhs, tglobaladdr:$imm)>;
 def : Pat<(add GPR:$lhs, (NDS32wrapper texternalsym:$imm)),
           (ADDri GPR:$lhs, texternalsym:$imm)>;
 def : Pat<(add GPR:$lhs, (NDS32wrapper tconstpool:$imm)),
