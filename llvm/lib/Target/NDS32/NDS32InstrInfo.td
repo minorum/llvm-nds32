@@ -419,3 +419,73 @@ def : Pat<(udivrem GPR:$lhs, GPR:$rhs), (DIVR GPR:$lhs, GPR:$rhs)>;
 // ori the low 12. (SETHI loads imm20 << 12; ori fills bits [11:0].)
 def : Pat<(i32 imm_wide:$imm),
           (ORri (SETHI (imm_hi20 imm:$imm)), (imm_lo12 imm:$imm))>;
+
+//===----------------------------------------------------------------------===//
+// Single-precision hardware FPU (AndeStar V3f). f32 lives in FPR32; the ABI
+// still passes/returns it in GPRs (softfp), so values cross the GPR/FPR
+// boundary via fmtsr/fmfsr (also used for bitcasts and int<->float plumbing).
+//===----------------------------------------------------------------------===//
+let Predicates = [HasFPU] in {
+def FADDS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                      "fadds\t$fd, $fs1, $fs2",
+                      [(set FPR32:$fd, (fadd FPR32:$fs1, FPR32:$fs2))]>;
+def FSUBS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                      "fsubs\t$fd, $fs1, $fs2",
+                      [(set FPR32:$fd, (fsub FPR32:$fs1, FPR32:$fs2))]>;
+def FMULS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                      "fmuls\t$fd, $fs1, $fs2",
+                      [(set FPR32:$fd, (fmul FPR32:$fs1, FPR32:$fs2))]>;
+def FDIVS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                      "fdivs\t$fd, $fs1, $fs2",
+                      [(set FPR32:$fd, (fdiv FPR32:$fs1, FPR32:$fs2))]>;
+def FSQRTS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs),
+                       "fsqrts\t$fd, $fs",
+                       [(set FPR32:$fd, (fsqrt FPR32:$fs))]>;
+def FABSS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs),
+                      "fabss\t$fd, $fs",
+                      [(set FPR32:$fd, (fabs FPR32:$fs))]>;
+// Copy with sign of fs2 / with negated sign of fs2.
+def FCPYSS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                       "fcpyss\t$fd, $fs1, $fs2",
+                       [(set FPR32:$fd, (fcopysign FPR32:$fs1, FPR32:$fs2))]>;
+def FCPYNSS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                        "fcpynss\t$fd, $fs1, $fs2", []>;
+def : Pat<(fneg FPR32:$x), (FCPYNSS FPR32:$x, FPR32:$x)>;
+
+// Conversions: result/source integer bits live in an FPR; move to/from a GPR
+// with fmfsr/fmtsr.
+def FS2SI : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fs2si\t$fd, $fs", []>;
+def FS2UI : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fs2ui\t$fd, $fs", []>;
+def FSI2S : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fsi2s\t$fd, $fs", []>;
+def FUI2S : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fui2s\t$fd, $fs", []>;
+def FMFSR : NDS32Inst<(outs GPR:$rt), (ins FPR32:$fs), "fmfsr\t$rt, $fs", []>;
+def FMTSR : NDS32Inst<(outs FPR32:$fd), (ins GPR:$rt), "fmtsr\t$rt, $fd", []>;
+
+def : Pat<(i32 (bitconvert FPR32:$x)), (FMFSR FPR32:$x)>;
+def : Pat<(f32 (bitconvert GPR:$x)), (FMTSR GPR:$x)>;
+def : Pat<(i32 (fp_to_sint FPR32:$x)), (FMFSR (FS2SI FPR32:$x))>;
+def : Pat<(i32 (fp_to_uint FPR32:$x)), (FMFSR (FS2UI FPR32:$x))>;
+def : Pat<(f32 (sint_to_fp GPR:$x)), (FSI2S (FMTSR GPR:$x))>;
+def : Pat<(f32 (uint_to_fp GPR:$x)), (FUI2S (FMTSR GPR:$x))>;
+
+// Loads and stores (word-scaled offset, like lwi/swi).
+def FLSI : NDS32Inst<(outs FPR32:$fd), (ins memri:$addr),
+                     "flsi\t$fd, [$addr]",
+                     [(set FPR32:$fd, (load addr:$addr))]>;
+def FSSI : NDS32Inst<(outs), (ins FPR32:$fd, memri:$addr),
+                     "fssi\t$fd, [$addr]",
+                     [(store FPR32:$fd, addr:$addr)]>;
+
+// Compares produce a 0/1 in an FPR; move it to a GPR boolean with fmfsr.
+def FCMPEQS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                        "fcmpeqs\t$fd, $fs1, $fs2", []>;
+def FCMPLTS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                        "fcmplts\t$fd, $fs1, $fs2", []>;
+def FCMPLES : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                        "fcmples\t$fd, $fs1, $fs2", []>;
+def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOEQ)), (FMFSR (FCMPEQS $a, $b))>;
+def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOLT)), (FMFSR (FCMPLTS $a, $b))>;
+def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOLE)), (FMFSR (FCMPLES $a, $b))>;
+def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOGT)), (FMFSR (FCMPLTS $b, $a))>;
+def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOGE)), (FMFSR (FCMPLES $b, $a))>;
+} // Predicates = [HasFPU]

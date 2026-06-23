@@ -32,6 +32,8 @@ class NDS32Subtarget : public NDS32GenSubtargetInfo {
   // NDS32.td). V3 implies V2.
   bool HasV2Ops = false;
   bool HasV3Ops = false;
+  // Single-precision hardware FPU (AndeStar V3f).
+  bool HasFPU = false;
 
   NDS32InstrInfo InstrInfo;
   NDS32TargetLowering TLInfo;
@@ -49,6 +51,7 @@ public:
   // True when the (at least) V2 / V3 base ISA is available.
   bool hasV2Ops() const { return HasV2Ops; }
   bool hasV3Ops() const { return HasV3Ops; }
+  bool hasFPU() const { return HasFPU; }
 
   const TargetFrameLowering *getFrameLowering() const override {
     return &FrameLowering;

@@ -94,6 +94,38 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
                      ISD::SETLE, ISD::SETUGE, ISD::SETULE},
                     MVT::i32, Custom);
   setBooleanContents(ZeroOrOneBooleanContent);
+
+  if (STI.hasFPU()) {
+    addRegisterClass(MVT::f32, &NDS32::FPR32RegClass);
+    // Native single-precision arithmetic, abs/neg/copysign, sqrt.
+    setOperationAction({ISD::FADD, ISD::FSUB, ISD::FMUL, ISD::FDIV, ISD::FSQRT,
+                        ISD::FABS, ISD::FNEG, ISD::FCOPYSIGN},
+                       MVT::f32, Legal);
+    // Compares: the ordered relations have patterns; expand the rest into them.
+    setCondCodeAction({ISD::SETUEQ, ISD::SETUNE, ISD::SETUGT, ISD::SETUGE,
+                       ISD::SETULT, ISD::SETULE, ISD::SETONE, ISD::SETO,
+                       ISD::SETUO},
+                      MVT::f32, Expand);
+    // No FP immediates or fused multiply-add; constants come from the pool.
+    setOperationAction(ISD::ConstantFP, MVT::f32, Expand);
+    setOperationAction(ISD::FMA, MVT::f32, Expand);
+    // Route f32 control flow through an i32 boolean: a branch on an f32 compare
+    // expands to setcc(f32)->i32 + i32 branch, and an f32 select reuses the i32
+    // select on the bitcast values (see LowerSELECT_CC).
+    setOperationAction(ISD::BR_CC, MVT::f32, Expand);
+    setOperationAction(ISD::SELECT, MVT::f32, Expand);
+    setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
+    // Everything else on f32 (transcendentals, rounding, min/max, f16/f64
+    // conversions) has no native form; expand to the soft-float libcalls.
+    setOperationAction(
+        {ISD::FSIN, ISD::FCOS, ISD::FTAN, ISD::FPOW, ISD::FEXP, ISD::FEXP2,
+         ISD::FEXP10, ISD::FLOG, ISD::FLOG2, ISD::FLOG10, ISD::FRINT,
+         ISD::FNEARBYINT, ISD::FCEIL, ISD::FFLOOR, ISD::FTRUNC, ISD::FROUND,
+         ISD::FROUNDEVEN, ISD::FMINNUM, ISD::FMAXNUM, ISD::FPOWI},
+        MVT::f32, Expand);
+    setOperationAction({ISD::FP16_TO_FP, ISD::FP_TO_FP16}, MVT::f32, Expand);
+  }
+
   computeRegisterProperties(STI.getRegisterInfo());
 }
 
@@ -133,6 +165,16 @@ static void promoteToI32(MVT &LocVT, CCValAssign::LocInfo &LocInfo,
     LocInfo = CCValAssign::AExt;
 }
 
+// softfp ABI: a hard-float f32 is still passed/returned in a GPR, bitcast to
+// i32. (With soft-float, f32 is already softened to i32 before the CC runs, so
+// this only fires for the V3f hard-float configuration.)
+static void coerceF32ToI32(MVT &LocVT, CCValAssign::LocInfo &LocInfo) {
+  if (LocVT == MVT::f32) {
+    LocVT = MVT::i32;
+    LocInfo = CCValAssign::BCvt;
+  }
+}
+
 // Argument calling convention. i32/pointers go in $r0-$r5 then 4-byte stack
 // slots. i64/f64 arrive pre-split into two i32 parts and are placed in an
 // EVEN-aligned register pair (consuming an odd register as padding) or an
@@ -141,6 +183,7 @@ static bool CC_NDS32(unsigned ValNo, MVT ValVT, MVT LocVT,
                      CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
                      Type *OrigTy, CCState &State) {
   promoteToI32(LocVT, LocInfo, ArgFlags);
+  coerceF32ToI32(LocVT, LocInfo);
 
   SmallVectorImpl<CCValAssign> &Pending = State.getPendingLocs();
 
@@ -194,6 +237,7 @@ static bool RetCC_NDS32(unsigned ValNo, MVT ValVT, MVT LocVT,
                         CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
                         Type *OrigTy, CCState &State) {
   promoteToI32(LocVT, LocInfo, ArgFlags);
+  coerceF32ToI32(LocVT, LocInfo);
   static const MCPhysReg RetRegs[] = {NDS32::R0, NDS32::R1};
   if (unsigned Reg = State.AllocateReg(RetRegs)) {
     State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
@@ -849,8 +893,18 @@ SDValue NDS32TargetLowering::LowerSELECT_CC(SDValue Op,
   else
     Cond = DAG.getSetCC(DL, MVT::i32, LHS, RHS, CC);
 
-  return DAG.getNode(NDS32ISD::SELECT_CC, DL, Op.getValueType(), Cond, TrueV,
-                     FalseV);
+  // The select pseudo operates on GPRs. For an f32 result, select the bitcast
+  // i32 values and bitcast back (the bitcasts become fmfsr/fmtsr, or fold away
+  // when the values already live in GPRs).
+  EVT VT = Op.getValueType();
+  if (VT == MVT::f32) {
+    SDValue T = DAG.getNode(ISD::BITCAST, DL, MVT::i32, TrueV);
+    SDValue F = DAG.getNode(ISD::BITCAST, DL, MVT::i32, FalseV);
+    SDValue Sel = DAG.getNode(NDS32ISD::SELECT_CC, DL, MVT::i32, Cond, T, F);
+    return DAG.getNode(ISD::BITCAST, DL, MVT::f32, Sel);
+  }
+
+  return DAG.getNode(NDS32ISD::SELECT_CC, DL, VT, Cond, TrueV, FalseV);
 }
 
 SDValue NDS32TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {

@@ -34,7 +34,9 @@ void NDS32InstrInfo::storeRegToStackSlot(
   if (MI != MBB.end())
     DL = MI->getDebugLoc();
 
-  BuildMI(MBB, MI, DL, get(NDS32::SWI))
+  unsigned Opc = NDS32::FPR32RegClass.hasSubClassEq(RC) ? NDS32::FSSI
+                                                        : NDS32::SWI;
+  BuildMI(MBB, MI, DL, get(Opc))
       .addReg(SrcReg, getKillRegState(isKill))
       .addFrameIndex(FrameIdx)
       .addImm(0);
@@ -48,7 +50,9 @@ void NDS32InstrInfo::loadRegFromStackSlot(
   if (MI != MBB.end())
     DL = MI->getDebugLoc();
 
-  BuildMI(MBB, MI, DL, get(NDS32::LWI), DestReg)
+  unsigned Opc = NDS32::FPR32RegClass.hasSubClassEq(RC) ? NDS32::FLSI
+                                                        : NDS32::LWI;
+  BuildMI(MBB, MI, DL, get(Opc), DestReg)
       .addFrameIndex(FrameIdx)
       .addImm(0);
 }
@@ -58,6 +62,25 @@ void NDS32InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  const DebugLoc &DL, Register DestReg,
                                  Register SrcReg, bool KillSrc,
                                  bool RenamableDest, bool RenamableSrc) const {
+  bool DstFP = NDS32::FPR32RegClass.contains(DestReg);
+  bool SrcFP = NDS32::FPR32RegClass.contains(SrcReg);
+  if (DstFP && SrcFP) {
+    // FPR -> FPR: copy with its own sign (fcpyss $fd, $fs, $fs).
+    BuildMI(MBB, I, DL, get(NDS32::FCPYSS), DestReg)
+        .addReg(SrcReg, getKillRegState(KillSrc))
+        .addReg(SrcReg);
+    return;
+  }
+  if (DstFP) {
+    BuildMI(MBB, I, DL, get(NDS32::FMTSR), DestReg)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+    return;
+  }
+  if (SrcFP) {
+    BuildMI(MBB, I, DL, get(NDS32::FMFSR), DestReg)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+    return;
+  }
   BuildMI(MBB, I, DL, get(NDS32::ADDri), DestReg)
       .addReg(SrcReg, getKillRegState(KillSrc))
       .addImm(0);

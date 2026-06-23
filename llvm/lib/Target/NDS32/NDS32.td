@@ -12,6 +12,10 @@ def FeatureV2 : SubtargetFeature<"v2", "HasV2Ops", "true",
 def FeatureV3 : SubtargetFeature<"v3", "HasV3Ops", "true",
                   "Support the NDS32 AndeStar V3 instruction set",
                   [FeatureV2]>;
+def FeatureFPU : SubtargetFeature<"fpu", "HasFPU", "true",
+                  "Support the single-precision hardware FPU (AndeStar V3f)",
+                  [FeatureV3]>;
+def HasFPU : Predicate<"Subtarget->hasFPU()">;
 
 include "NDS32RegisterInfo.td"
 include "NDS32InstrInfo.td"
@@ -39,6 +43,7 @@ def : ProcessorModel<"generic", NDS32SchedModel, [FeatureV2]>;
 def : ProcessorModel<"nds32",   NDS32SchedModel, [FeatureV2]>;
 def : ProcessorModel<"v2",      NDS32SchedModel, [FeatureV2]>;
 def : ProcessorModel<"v3",      NDS32SchedModel, [FeatureV3]>;
+def : ProcessorModel<"v3f",     NDS32SchedModel, [FeatureFPU]>;
 
 def NDS32 : Target {
   let InstructionSet = NDS32InstrInfo;

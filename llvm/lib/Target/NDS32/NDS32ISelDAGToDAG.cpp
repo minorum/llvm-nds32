@@ -1,6 +1,7 @@
 #include "NDS32.h"
 #include "NDS32TargetMachine.h"
 #include "NDS32ISelLowering.h"
+#include "NDS32Subtarget.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/IR/InlineAsm.h"
@@ -13,10 +14,18 @@ using namespace llvm;
 
 namespace {
 class NDS32DAGToDAGISel : public SelectionDAGISel {
+  // Set per function; referenced by the generated predicate code (HasFPU).
+  const NDS32Subtarget *Subtarget = nullptr;
+
 public:
   NDS32DAGToDAGISel() = delete;
   NDS32DAGToDAGISel(NDS32TargetMachine &TM, CodeGenOptLevel OptLevel)
       : SelectionDAGISel(TM, OptLevel) {}
+
+  bool runOnMachineFunction(MachineFunction &MF) override {
+    Subtarget = &MF.getSubtarget<NDS32Subtarget>();
+    return SelectionDAGISel::runOnMachineFunction(MF);
+  }
 
   bool selectMemAddr(SDValue Addr, SDValue &Base, SDValue &Offset);
   bool selectRegOffsetAddr(SDValue Addr, SDValue &Base, SDValue &Index,

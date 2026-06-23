@@ -467,6 +467,70 @@ void NDS32MCCodeEmitter::encodeInstruction(
            (getReg(MI.getOperand(2)) << 10) | (Scale << 8) | Sub;
     break;
   }
+  // Single-precision FPU. Three-register ALU ops share the rt/ra/rb layout.
+  case NDS32::FADDS:
+  case NDS32::FSUBS:
+  case NDS32::FMULS:
+  case NDS32::FDIVS:
+  case NDS32::FCPYSS:
+  case NDS32::FCPYNSS:
+  case NDS32::FCMPEQS:
+  case NDS32::FCMPLTS:
+  case NDS32::FCMPLES: {
+    uint32_t Op;
+    switch (MI.getOpcode()) {
+    case NDS32::FADDS:   Op = 0x6a000000; break;
+    case NDS32::FSUBS:   Op = 0x6a000040; break;
+    case NDS32::FMULS:   Op = 0x6a000300; break;
+    case NDS32::FDIVS:   Op = 0x6a000340; break;
+    case NDS32::FCPYSS:  Op = 0x6a0000c0; break;
+    case NDS32::FCPYNSS: Op = 0x6a000080; break;
+    case NDS32::FCMPEQS: Op = 0x6a000004; break;
+    case NDS32::FCMPLTS: Op = 0x6a000084; break;
+    default:             Op = 0x6a000104; break; // FCMPLES
+    }
+    Bits = Op | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15) | (getReg(MI.getOperand(2)) << 10);
+    break;
+  }
+  // Two-register FPU ops: fd[24:20], fs1[19:15].
+  case NDS32::FSQRTS:
+  case NDS32::FABSS:
+  case NDS32::FS2SI:
+  case NDS32::FS2UI:
+  case NDS32::FSI2S:
+  case NDS32::FUI2S:
+  case NDS32::FMFSR: {
+    uint32_t Op;
+    switch (MI.getOpcode()) {
+    case NDS32::FSQRTS: Op = 0x6a0007c0; break;
+    case NDS32::FABSS:  Op = 0x6a0017c0; break;
+    case NDS32::FS2SI:  Op = 0x6a0063c0; break;
+    case NDS32::FS2UI:  Op = 0x6a0043c0; break;
+    case NDS32::FSI2S:  Op = 0x6a0033c0; break;
+    case NDS32::FUI2S:  Op = 0x6a0023c0; break;
+    default:            Op = 0x6a000001; break; // FMFSR (rt[24:20], fs[19:15])
+    }
+    Bits = Op | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15);
+    break;
+  }
+  // fmtsr $rt, $fd: the GPR source is encoded in [24:20] and the FPR dest in
+  // [19:15], but the instruction's operands are (FPR $fd, GPR $rt).
+  case NDS32::FMTSR:
+    Bits = 0x6a000009 | (getReg(MI.getOperand(1)) << 20) |
+           (getReg(MI.getOperand(0)) << 15);
+    break;
+  case NDS32::FLSI:
+    Bits = 0x30000000 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15) |
+           getMemOffsetWords(MI, MI.getOperand(2), Fixups, STI);
+    break;
+  case NDS32::FSSI:
+    Bits = 0x32000000 | (getReg(MI.getOperand(0)) << 20) |
+           (getReg(MI.getOperand(1)) << 15) |
+           getMemOffsetWords(MI, MI.getOperand(2), Fixups, STI);
+    break;
   default:
     report_fatal_error("NDS32 instruction encoding is not implemented");
   }
