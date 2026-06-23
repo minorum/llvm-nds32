@@ -183,8 +183,46 @@ void NDS32MCCodeEmitter::encodeInstruction(
     const MCInst &MI, SmallVectorImpl<char> &CB, SmallVectorImpl<MCFixup> &Fixups,
     const MCSubtargetInfo &STI) const {
   uint32_t Bits = 0;
+  unsigned Size = 4; // 16-bit forms set this to 2 below.
 
   switch (MI.getOpcode()) {
+  // 16-bit (compressed) forms.
+  case NDS32::MOV55:
+    Size = 2;
+    Bits = 0x8000 | (getReg(MI.getOperand(0)) << 5) | getReg(MI.getOperand(1));
+    break;
+  case NDS32::MOVI55:
+    Size = 2;
+    Bits = 0x8400 | (getReg(MI.getOperand(0)) << 5) |
+           (static_cast<uint32_t>(MI.getOperand(1).getImm()) & 0x1f);
+    break;
+  case NDS32::ADD45: // rt(0), src(1,tied), rb(2)
+    Size = 2;
+    Bits = 0x8800 | (getReg(MI.getOperand(0)) << 5) | getReg(MI.getOperand(2));
+    break;
+  case NDS32::ADDI45: // rt(0), src(1,tied), imm(2)
+    Size = 2;
+    Bits = 0x8c00 | (getReg(MI.getOperand(0)) << 5) |
+           (static_cast<uint32_t>(MI.getOperand(2).getImm()) & 0x1f);
+    break;
+  case NDS32::ADDI333:
+    Size = 2;
+    Bits = 0x9c00 | (getReg(MI.getOperand(0)) << 6) |
+           (getReg(MI.getOperand(1)) << 3) |
+           (static_cast<uint32_t>(MI.getOperand(2).getImm()) & 0x7);
+    break;
+  case NDS32::LWI333:
+    Size = 2;
+    Bits = 0xa000 | (getReg(MI.getOperand(0)) << 6) |
+           (getReg(MI.getOperand(1)) << 3) |
+           ((static_cast<uint32_t>(MI.getOperand(2).getImm()) >> 2) & 0x7);
+    break;
+  case NDS32::SWI333:
+    Size = 2;
+    Bits = 0xa800 | (getReg(MI.getOperand(0)) << 6) |
+           (getReg(MI.getOperand(1)) << 3) |
+           ((static_cast<uint32_t>(MI.getOperand(2).getImm()) >> 2) & 0x7);
+    break;
   case NDS32::NOP:
     Bits = 0x40000009;
     break;
@@ -600,7 +638,10 @@ void NDS32MCCodeEmitter::encodeInstruction(
   raw_svector_ostream OS(CB);
   support::endian::Writer Writer(
       OS, IsLittleEndian ? llvm::endianness::little : llvm::endianness::big);
-  Writer.write<uint32_t>(Bits);
+  if (Size == 2)
+    Writer.write<uint16_t>(static_cast<uint16_t>(Bits));
+  else
+    Writer.write<uint32_t>(Bits);
 }
 
 MCCodeEmitter *llvm::createNDS32MCCodeEmitter(const MCInstrInfo &MCII,

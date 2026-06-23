@@ -352,6 +352,36 @@ let isCall = 1, Defs = [R30] in {
   def JRAL : NDS32Inst<(outs), (ins GPR:$dst), "jral\t$dst", []>;
 }
 
+//===----------------------------------------------------------------------===//
+// 16-bit (compressed) instruction forms. These are produced post-RA by the
+// NDS32Compress pass from their 32-bit equivalents when the operands fit, for
+// ~20-30% smaller .text. They carry no ISel patterns. Size = 2 bytes.
+//===----------------------------------------------------------------------===//
+class NDS32Inst16<dag outs, dag ins, string asmstr> : Instruction {
+  let Namespace = "NDS32";
+  let Size = 2;
+  let OutOperandList = outs;
+  let InOperandList = ins;
+  let AsmString = asmstr;
+  let Pattern = [];
+}
+
+def MOV55   : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra), "mov55\t$rt, $ra">;
+def MOVI55  : NDS32Inst16<(outs GPR:$rt), (ins i32imm:$imm),
+                          "movi55\t$rt, $imm">;
+let Constraints = "$src = $rt" in {
+def ADD45  : NDS32Inst16<(outs GPR:$rt), (ins GPR:$src, GPR:$rb),
+                         "add45\t$rt, $rb">;
+def ADDI45 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$src, i32imm:$imm),
+                         "addi45\t$rt, $imm">;
+}
+def ADDI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, i32imm:$imm),
+                          "addi333\t$rt, $ra, $imm">;
+def LWI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, i32imm:$imm),
+                         "lwi333\t$rt, [$ra + $imm]"> { let mayLoad = 1; }
+def SWI333 : NDS32Inst16<(outs), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
+                         "swi333\t$rt, [$ra + $imm]"> { let mayStore = 1; }
+
 class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
     : Instruction {
   let Namespace = "NDS32";

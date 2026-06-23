@@ -19,6 +19,7 @@ add_llvm_target(NDS32CodeGen
   NDS32InstrInfo.cpp
   NDS32RegisterInfo.cpp
   NDS32AsmPrinter.cpp
+  NDS32Compress.cpp
 
   LINK_COMPONENTS
   AsmPrinter

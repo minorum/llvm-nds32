@@ -20,6 +20,8 @@ class PassRegistry;
 FunctionPass *createNDS32ISelDag(NDS32TargetMachine &TM,
                                  CodeGenOptLevel OptLevel);
 
+FunctionPass *createNDS32CompressPass();
+
 } // namespace llvm
 
 #endif // LLVM_LIB_TARGET_NDS32_NDS32_H

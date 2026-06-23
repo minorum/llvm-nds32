@@ -72,6 +72,11 @@ public:
     addPass(createNDS32ISelDag(getNDS32TargetMachine(), getOptLevel()));
     return false;
   }
+
+  void addPreEmitPass() override {
+    // Compress eligible 32-bit instructions to 16-bit forms for code size.
+    addPass(createNDS32CompressPass());
+  }
 };
 } // namespace
 
