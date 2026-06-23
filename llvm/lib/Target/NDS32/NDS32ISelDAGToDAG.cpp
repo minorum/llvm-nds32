@@ -3,6 +3,7 @@
 #include "NDS32ISelLowering.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/Support/Compiler.h"
 
 using namespace llvm;
@@ -18,6 +19,26 @@ public:
       : SelectionDAGISel(TM, OptLevel) {}
 
   bool selectMemAddr(SDValue Addr, SDValue &Base, SDValue &Offset);
+
+  // Lower an inline-asm "m"/"o" memory operand into the backend's native
+  // base+offset addressing pair, reusing selectMemAddr. The two operands are
+  // printed as "[$base + off]" by NDS32AsmPrinter::PrintAsmMemoryOperand.
+  bool SelectInlineAsmMemoryOperand(const SDValue &Op,
+                                    InlineAsm::ConstraintCode ConstraintID,
+                                    std::vector<SDValue> &OutOps) override {
+    switch (ConstraintID) {
+    case InlineAsm::ConstraintCode::m:
+    case InlineAsm::ConstraintCode::o: {
+      SDValue Base, Offset;
+      selectMemAddr(Op, Base, Offset);
+      OutOps.push_back(Base);
+      OutOps.push_back(Offset);
+      return false;
+    }
+    default:
+      return true;
+    }
+  }
 
   void Select(SDNode *Node) override {
     // A standalone FrameIndex value (e.g. the address of a local passed to a

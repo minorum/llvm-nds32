@@ -848,3 +848,54 @@ NDS32TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   MI.eraseFromParent();
   return SinkMBB;
 }
+
+//===----------------------------------------------------------------------===//
+// Inline assembly support
+//===----------------------------------------------------------------------===//
+
+TargetLowering::ConstraintType
+NDS32TargetLowering::getConstraintType(StringRef Constraint) const {
+  if (Constraint.size() == 1) {
+    switch (Constraint[0]) {
+    case 'r':
+      return C_RegisterClass;
+    case 'I': // signed 15-bit immediate
+    case 'J': // signed 20-bit immediate
+    case 'K': // unsigned 15-bit immediate
+      return C_Immediate;
+    default:
+      break;
+    }
+  }
+  return TargetLowering::getConstraintType(Constraint);
+}
+
+std::pair<unsigned, const TargetRegisterClass *>
+NDS32TargetLowering::getRegForInlineAsmConstraint(
+    const TargetRegisterInfo *TRI, StringRef Constraint, MVT VT) const {
+  if (Constraint.size() == 1 && Constraint[0] == 'r')
+    return std::make_pair(0U, &NDS32::GPRRegClass);
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
+}
+
+void NDS32TargetLowering::LowerAsmOperandForConstraint(
+    SDValue Op, StringRef Constraint, std::vector<SDValue> &Ops,
+    SelectionDAG &DAG) const {
+  if (Constraint.size() == 1) {
+    char C = Constraint[0];
+    if (C == 'I' || C == 'J' || C == 'K') {
+      auto *CN = dyn_cast<ConstantSDNode>(Op);
+      if (!CN)
+        return; // non-constant operand for an immediate constraint: reject
+      int64_t Val = CN->getSExtValue();
+      bool InRange = (C == 'I') ? isInt<15>(Val)
+                   : (C == 'J') ? isInt<20>(Val)
+                                : isUInt<15>(Val); // 'K'
+      if (InRange)
+        Ops.push_back(
+            DAG.getSignedTargetConstant(Val, SDLoc(Op), Op.getValueType()));
+      return; // out of range: add nothing (constraint not satisfied)
+    }
+  }
+  TargetLowering::LowerAsmOperandForConstraint(Op, Constraint, Ops, DAG);
+}

@@ -80,6 +80,22 @@ public:
   EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *MBB) const override;
 
+  // Inline assembly support. Recognizes the generic "r" register constraint
+  // (any GPR) and three immediate constraints mapped to real NDS32 immediate
+  // fields: "I" = signed 15-bit (addi/load-store offset), "J" = signed 20-bit
+  // (movi), "K" = unsigned 15-bit (ori/andi/xori). "m" memory operands are
+  // handled by the default getInlineAsmMemConstraint plus the DAG selector's
+  // SelectInlineAsmMemoryOperand.
+  ConstraintType getConstraintType(StringRef Constraint) const override;
+
+  std::pair<unsigned, const TargetRegisterClass *>
+  getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                               StringRef Constraint, MVT VT) const override;
+
+  void LowerAsmOperandForConstraint(SDValue Op, StringRef Constraint,
+                                    std::vector<SDValue> &Ops,
+                                    SelectionDAG &DAG) const override;
+
   // This is a single-hart target (the firmware target spec sets
   // singlethread): atomics have no other observer, so lower every atomic
   // operation to its plain non-atomic equivalent.

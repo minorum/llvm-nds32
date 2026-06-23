@@ -10,6 +10,7 @@
 #include "NDS32InstrInfo.h"
 #include "NDS32TargetMachine.h"
 #include "TargetInfo/NDS32TargetInfo.h"
+#include "MCTargetDesc/NDS32InstPrinter.h"
 #include "MCTargetDesc/NDS32MCAsmInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
@@ -37,8 +38,62 @@ public:
   StringRef getPassName() const override { return "NDS32 Assembly Printer"; }
 
   void emitInstruction(const MachineInstr *MI) override;
+
+  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                       const char *ExtraCode, raw_ostream &OS) override;
+  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
+                             const char *ExtraCode, raw_ostream &OS) override;
 };
 } // end of anonymous namespace
+
+// Print an inline-asm operand ($N substitution). Handles plain registers,
+// immediates, and global addresses; defers modifiers (e.g. %c, %n) to the
+// generic AsmPrinter implementation.
+bool NDS32AsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                      const char *ExtraCode, raw_ostream &OS) {
+  if (ExtraCode && ExtraCode[0])
+    return AsmPrinter::PrintAsmOperand(MI, OpNo, ExtraCode, OS);
+
+  const MachineOperand &MO = MI->getOperand(OpNo);
+  switch (MO.getType()) {
+  case MachineOperand::MO_Register:
+    OS << NDS32InstPrinter::getRegisterName(MO.getReg());
+    return false;
+  case MachineOperand::MO_Immediate:
+    OS << MO.getImm();
+    return false;
+  case MachineOperand::MO_GlobalAddress:
+    PrintSymbolOperand(MO, OS);
+    return false;
+  default:
+    return AsmPrinter::PrintAsmOperand(MI, OpNo, ExtraCode, OS);
+  }
+}
+
+// Print an inline-asm "m" memory operand as "[$base + off]" (the NDS32
+// addressing syntax). The operand is a base register followed by an immediate
+// offset, as produced by SelectInlineAsmMemoryOperand.
+bool NDS32AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
+                                            unsigned OpNo, const char *ExtraCode,
+                                            raw_ostream &OS) {
+  if (ExtraCode && ExtraCode[0])
+    return true; // unsupported modifier
+
+  const MachineOperand &Base = MI->getOperand(OpNo);
+  if (!Base.isReg())
+    return true;
+
+  OS << "[" << NDS32InstPrinter::getRegisterName(Base.getReg());
+  const MachineOperand &Off = MI->getOperand(OpNo + 1);
+  if (Off.isImm() && Off.getImm() != 0) {
+    if (Off.getImm() > 0)
+      OS << " + " << Off.getImm();
+    else
+      OS << " - " << -Off.getImm();
+  }
+  OS << "]";
+  return false;
+}
 
 void NDS32AsmPrinter::emitInstruction(const MachineInstr *MI) {
   if (MI->isPseudo())
