@@ -79,21 +79,100 @@ def SDT_NDS32SelectCC : SDTypeProfile<1, 3, [SDTCisVT<1, i32>, SDTCisSameAs<0, 2
 def NDS32selectcc     : SDNode<"NDS32ISD::SELECT_CC", SDT_NDS32SelectCC>;
 
 def brtarget : Operand<OtherVT>;
+def brtarget25 : Operand<OtherVT> { let EncoderMethod = "encodeBr25"; }
+def brtarget17 : Operand<OtherVT> { let EncoderMethod = "encodeBr17"; }
+def brtarget15 : Operand<OtherVT> { let EncoderMethod = "encodeBr15"; }
 
-// Memory operand: base register + constant word-aligned byte offset.
+// j/jal: 8-bit opcode in Inst[31:24], 24-bit (halfword) target in [23:0].
+class JF<bits<8> op8, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<24> target;
+  let Inst{31-24} = op8;
+  let Inst{23-0} = target;
+}
+
+// beqz/bnez/bgez/bltz/bgtz/blez: op6=0x27, rt, 3-bit condition in [18:16],
+// 16-bit (halfword) target in [15:0].
+class Br17<bits<3> cond, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<16> target;
+  let Inst{31-25} = 0x27;
+  let Inst{24-20} = rt;
+  let Inst{19} = 0;
+  let Inst{18-16} = cond;
+  let Inst{15-0} = target;
+}
+
+// beq/bne: op6=0x26, rt, ra, bit14 selects ne, 14-bit (halfword) target.
+class Br15<bits<1> ne, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<5> ra;
+  bits<14> target;
+  let Inst{31-25} = 0x26;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = ra;
+  let Inst{14} = ne;
+  let Inst{13-0} = target;
+}
+
+// I-type 15-bit immediate (carries lo12 symbol fixups via encodeImm15).
+def imm15op : Operand<i32> { let EncoderMethod = "encodeImm15"; }
+// 20-bit immediate (movi / sethi hi20 fixups).
+def imm20op : Operand<i32> { let EncoderMethod = "encodeImm20"; }
+
+// Memory operand: base register + constant word-aligned byte offset. The
+// EncoderMethod packs base[19:15] and the scaled offset[14:0] into Inst[19:0].
 def memri : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPR, i32imm);
+  let EncoderMethod = "encodeMemWords";
 }
 
 def memri8 : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPR, i32imm);
+  let EncoderMethod = "encodeMemBytes";
 }
 
 def memri16 : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPR, i32imm);
+  let EncoderMethod = "encodeMemHalfwords";
+}
+
+// I-type immediate ALU format.
+class ALUi15<bits<7> op6, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<5> ra;
+  bits<15> imm;
+  let Inst{31-25} = op6;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = ra;
+  let Inst{14-0} = imm;
+}
+
+// Load/store format: rt in [24:20] (the value for stores), memory operand
+// packed into [19:0].
+class MemF<bits<7> op6, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<20> addr;
+  let Inst{31-25} = op6;
+  let Inst{24-20} = rt;
+  let Inst{19-0} = addr;
+}
+
+// movi / sethi: a 20-bit immediate in Inst[19:0].
+class MoviF<bits<7> op6, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<20> imm;
+  let Inst{31-25} = op6;
+  let Inst{24-20} = rt;
+  let Inst{19-0} = imm;
 }
 
 def addr : ComplexPattern<iPTR, 2, "selectMemAddr", [frameindex]>;
@@ -128,23 +207,23 @@ def imm_lo12 : SDNodeXForm<imm, [{
 def imm_wide : PatLeaf<(imm), [{ return !isInt<20>(N->getSExtValue()); }]>;
 
 // Minimal instructions for skeleton compilation
-def NOP : NDS32Inst<(outs), (ins), "nop", []>;
+def NOP : NDS32Inst<(outs), (ins), "nop", []> { let Inst = 0x40000009; }
 
-def sethi_imm : Operand<i32>;
-def SETHI : NDS32Inst<(outs GPR:$dst), (ins sethi_imm:$imm),
-                      "sethi\t$dst, $imm", []>;
+def sethi_imm : Operand<i32> { let EncoderMethod = "encodeImm20"; }
+def SETHI : MoviF<0x23, (outs GPR:$rt), (ins sethi_imm:$imm),
+                  "sethi\t$rt, $imm", []>;
 
-def MOVI : NDS32Inst<(outs GPR:$dst), (ins i32imm:$imm),
-                     "movi\t$dst, $imm",
-                     [(set GPR:$dst, simm20:$imm)]>;
+def MOVI : MoviF<0x22, (outs GPR:$rt), (ins imm20op:$imm),
+                 "movi\t$rt, $imm",
+                 [(set GPR:$rt, simm20:$imm)]>;
 
 def ADDrr : ALUrrr<0x20, 0, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                    "add\t$rt, $ra, $rb",
                    [(set GPR:$rt, (add GPR:$ra, GPR:$rb))]>;
 
-def ADDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                      "addi\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (add GPR:$lhs, simm15:$imm))]>;
+def ADDri : ALUi15<0x28, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+                   "addi\t$rt, $ra, $imm",
+                   [(set GPR:$rt, (add GPR:$ra, simm15:$imm))]>;
 
 def SUBrr : ALUrrr<0x20, 1, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                    "sub\t$rt, $ra, $rb",
@@ -237,9 +316,9 @@ def MSUBR32 : ALUrrr<0x21, 0x75, (outs GPR:$rt),
                      [(set GPR:$rt, (sub GPR:$dstin, (mul GPR:$ra, GPR:$rb)))]>;
 }
 
-def ANDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                      "andi\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (and GPR:$lhs, uimm15:$imm))]>;
+def ANDri : ALUi15<0x2a, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+                   "andi\t$rt, $ra, $imm",
+                   [(set GPR:$rt, (and GPR:$ra, uimm15:$imm))]>;
 
 // bitci rt, ra, #imm15: rt = ra & ~zext(imm15). Matches an AND with a constant
 // whose complement fits in 15 unsigned bits (i.e. only low bits are cleared),
@@ -251,17 +330,17 @@ def bitci_xform : SDNodeXForm<imm, [{
 def imm_bitci : PatLeaf<(imm), [{
   return isUInt<15>(~(uint32_t)N->getZExtValue());
 }], bitci_xform>;
-def BITCI : NDS32Inst<(outs GPR:$dst), (ins GPR:$ra, i32imm:$imm),
-                      "bitci\t$dst, $ra, $imm",
-                      [(set GPR:$dst, (and GPR:$ra, imm_bitci:$imm))]>;
+def BITCI : ALUi15<0x33, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+                   "bitci\t$rt, $ra, $imm",
+                   [(set GPR:$rt, (and GPR:$ra, imm_bitci:$imm))]>;
 
-def ORri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                     "ori\t$dst, $lhs, $imm",
-                     [(set GPR:$dst, (or GPR:$lhs, uimm15:$imm))]>;
+def ORri : ALUi15<0x2c, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+                  "ori\t$rt, $ra, $imm",
+                  [(set GPR:$rt, (or GPR:$ra, uimm15:$imm))]>;
 
-def XORri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                      "xori\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (xor GPR:$lhs, uimm15:$imm))]>;
+def XORri : ALUi15<0x2b, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+                   "xori\t$rt, $ra, $imm",
+                   [(set GPR:$rt, (xor GPR:$ra, uimm15:$imm))]>;
 
 def SLLIri : ALUsa<0x20, 8, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
                    "slli\t$rt, $ra, $sa",
@@ -283,45 +362,45 @@ def SLTS : ALUrrr<0x20, 7, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                   "slts\t$rt, $ra, $rb",
                   [(set GPR:$rt, (setcc GPR:$ra, GPR:$rb, SETLT))]>;
 
-def SLTI : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                     "slti\t$dst, $lhs, $imm",
-                     [(set GPR:$dst, (setcc GPR:$lhs, simm15:$imm, SETULT))]>;
+def SLTI : ALUi15<0x2e, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+                  "slti\t$rt, $ra, $imm",
+                  [(set GPR:$rt, (setcc GPR:$ra, simm15:$imm, SETULT))]>;
 
-def SLTSI : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                      "sltsi\t$dst, $lhs, $imm",
-                      [(set GPR:$dst, (setcc GPR:$lhs, simm15:$imm, SETLT))]>;
+def SLTSI : ALUi15<0x2f, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+                   "sltsi\t$rt, $ra, $imm",
+                   [(set GPR:$rt, (setcc GPR:$ra, simm15:$imm, SETLT))]>;
 
-def LWI : NDS32Inst<(outs GPR:$dst), (ins memri:$addr),
-                    "lwi\t$dst, [$addr]",
-                    [(set GPR:$dst, (load addr:$addr))]>;
+def LWI : MemF<0x02, (outs GPR:$rt), (ins memri:$addr),
+               "lwi\t$rt, [$addr]",
+               [(set GPR:$rt, (load addr:$addr))]>;
 
-def LBI : NDS32Inst<(outs GPR:$dst), (ins memri8:$addr),
-                    "lbi\t$dst, [$addr]",
-                    [(set GPR:$dst, (zextloadi8 addr:$addr))]>;
+def LBI : MemF<0x00, (outs GPR:$rt), (ins memri8:$addr),
+               "lbi\t$rt, [$addr]",
+               [(set GPR:$rt, (zextloadi8 addr:$addr))]>;
 
-def LBSI : NDS32Inst<(outs GPR:$dst), (ins memri8:$addr),
-                     "lbsi\t$dst, [$addr]",
-                     [(set GPR:$dst, (sextloadi8 addr:$addr))]>;
+def LBSI : MemF<0x10, (outs GPR:$rt), (ins memri8:$addr),
+                "lbsi\t$rt, [$addr]",
+                [(set GPR:$rt, (sextloadi8 addr:$addr))]>;
 
-def LHI : NDS32Inst<(outs GPR:$dst), (ins memri16:$addr),
-                    "lhi\t$dst, [$addr]",
-                    [(set GPR:$dst, (zextloadi16 addr:$addr))]>;
+def LHI : MemF<0x01, (outs GPR:$rt), (ins memri16:$addr),
+               "lhi\t$rt, [$addr]",
+               [(set GPR:$rt, (zextloadi16 addr:$addr))]>;
 
-def LHSI : NDS32Inst<(outs GPR:$dst), (ins memri16:$addr),
-                     "lhsi\t$dst, [$addr]",
-                     [(set GPR:$dst, (sextloadi16 addr:$addr))]>;
+def LHSI : MemF<0x11, (outs GPR:$rt), (ins memri16:$addr),
+                "lhsi\t$rt, [$addr]",
+                [(set GPR:$rt, (sextloadi16 addr:$addr))]>;
 
-def SWI : NDS32Inst<(outs), (ins GPR:$src, memri:$addr),
-                    "swi\t$src, [$addr]",
-                    [(store GPR:$src, addr:$addr)]>;
+def SWI : MemF<0x0a, (outs), (ins GPR:$rt, memri:$addr),
+               "swi\t$rt, [$addr]",
+               [(store GPR:$rt, addr:$addr)]>;
 
-def SBI : NDS32Inst<(outs), (ins GPR:$src, memri8:$addr),
-                    "sbi\t$src, [$addr]",
-                    [(truncstorei8 GPR:$src, addr:$addr)]>;
+def SBI : MemF<0x08, (outs), (ins GPR:$rt, memri8:$addr),
+               "sbi\t$rt, [$addr]",
+               [(truncstorei8 GPR:$rt, addr:$addr)]>;
 
-def SHI : NDS32Inst<(outs), (ins GPR:$src, memri16:$addr),
-                    "shi\t$src, [$addr]",
-                    [(truncstorei16 GPR:$src, addr:$addr)]>;
+def SHI : MemF<0x09, (outs), (ins GPR:$rt, memri16:$addr),
+               "shi\t$rt, [$addr]",
+               [(truncstorei16 GPR:$rt, addr:$addr)]>;
 
 // Register-offset loads and stores: address = base + (index << scale).
 def LW_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
@@ -384,20 +463,34 @@ def : Pat<(i32 (extloadi16 addr:$addr)), (LHI memri16:$addr)>;
 def : Pat<(i32 (extloadi1 addr:$addr)),  (LBI memri8:$addr)>;
 
 let isReturn = 1, isTerminator = 1, isBarrier = 1 in
-def RET : NDS32Inst<(outs), (ins), "ret", [(NDS32retflag)]>;
+def RET : NDS32Inst<(outs), (ins), "ret", [(NDS32retflag)]> {
+  let Inst = 0x4a007820;
+}
 
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in
-def BR : NDS32Inst<(outs), (ins brtarget:$dst), "b\t$dst", [(br bb:$dst)]>;
+def BR : JF<0x48, (outs), (ins brtarget25:$target), "b\t$target",
+            [(br bb:$target)]>;
 
-// Indirect jump (jr $rs): used for jump-table dispatch (brind).
+// Indirect jump (jr $rs): used for jump-table dispatch (brind). op6=0x25,
+// $rs in [14:10].
 let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1 in
-def JR : NDS32Inst<(outs), (ins GPR:$rs), "jr\t$rs", [(brind GPR:$rs)]>;
+def JR : NDS32Inst<(outs), (ins GPR:$rs), "jr\t$rs", [(brind GPR:$rs)]> {
+  bits<5> rs;
+  let Inst{31-25} = 0x25;
+  let Inst{14-10} = rs;
+}
 
-def call_target : Operand<i32>;
+def call_target : Operand<i32> { let EncoderMethod = "encodeBr25"; }
 
 let isCall = 1, Defs = [R30] in {
-  def JAL : NDS32Inst<(outs), (ins call_target:$dst), "jal\t$dst", []>;
-  def JRAL : NDS32Inst<(outs), (ins GPR:$dst), "jral\t$dst", []>;
+  def JAL : JF<0x49, (outs), (ins call_target:$target), "jal\t$target", []>;
+  def JRAL : NDS32Inst<(outs), (ins GPR:$rs), "jral\t$rs", []> {
+    bits<5> rs;
+    let Inst{31-25} = 0x25;
+    let Inst{24-15} = 0x3c0;
+    let Inst{14-10} = rs;
+    let Inst{9-0} = 1;
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -460,37 +553,37 @@ def Select : Pseudo<(outs GPR:$dst), (ins GPR:$cond, GPR:$t, GPR:$f),
                     [(set GPR:$dst, (NDS32selectcc GPR:$cond, GPR:$t, GPR:$f))]>;
 
 let isBranch = 1, isTerminator = 1 in {
-def BEQZ : NDS32Inst<(outs), (ins GPR:$lhs, brtarget:$dst),
-                     "beqz\t$lhs, $dst",
-                     [(NDS32br_cc SETEQ, GPR:$lhs, (i32 0), bb:$dst)]>;
+def BEQZ : Br17<2, (outs), (ins GPR:$rt, brtarget17:$target),
+                 "beqz\t$rt, $target",
+                 [(NDS32br_cc SETEQ, GPR:$rt, (i32 0), bb:$target)]>;
 
-def BNEZ : NDS32Inst<(outs), (ins GPR:$lhs, brtarget:$dst),
-                     "bnez\t$lhs, $dst",
-                     [(NDS32br_cc SETNE, GPR:$lhs, (i32 0), bb:$dst)]>;
+def BNEZ : Br17<3, (outs), (ins GPR:$rt, brtarget17:$target),
+                 "bnez\t$rt, $target",
+                 [(NDS32br_cc SETNE, GPR:$rt, (i32 0), bb:$target)]>;
 
-def BGEZ : NDS32Inst<(outs), (ins GPR:$lhs, brtarget:$dst),
-                     "bgez\t$lhs, $dst",
-                     [(NDS32br_cc SETGE, GPR:$lhs, (i32 0), bb:$dst)]>;
+def BGEZ : Br17<4, (outs), (ins GPR:$rt, brtarget17:$target),
+                 "bgez\t$rt, $target",
+                 [(NDS32br_cc SETGE, GPR:$rt, (i32 0), bb:$target)]>;
 
-def BLTZ : NDS32Inst<(outs), (ins GPR:$lhs, brtarget:$dst),
-                     "bltz\t$lhs, $dst",
-                     [(NDS32br_cc SETLT, GPR:$lhs, (i32 0), bb:$dst)]>;
+def BLTZ : Br17<5, (outs), (ins GPR:$rt, brtarget17:$target),
+                 "bltz\t$rt, $target",
+                 [(NDS32br_cc SETLT, GPR:$rt, (i32 0), bb:$target)]>;
 
-def BGTZ : NDS32Inst<(outs), (ins GPR:$lhs, brtarget:$dst),
-                     "bgtz\t$lhs, $dst",
-                     [(NDS32br_cc SETGT, GPR:$lhs, (i32 0), bb:$dst)]>;
+def BGTZ : Br17<6, (outs), (ins GPR:$rt, brtarget17:$target),
+                 "bgtz\t$rt, $target",
+                 [(NDS32br_cc SETGT, GPR:$rt, (i32 0), bb:$target)]>;
 
-def BLEZ : NDS32Inst<(outs), (ins GPR:$lhs, brtarget:$dst),
-                     "blez\t$lhs, $dst",
-                     [(NDS32br_cc SETLE, GPR:$lhs, (i32 0), bb:$dst)]>;
+def BLEZ : Br17<7, (outs), (ins GPR:$rt, brtarget17:$target),
+                 "blez\t$rt, $target",
+                 [(NDS32br_cc SETLE, GPR:$rt, (i32 0), bb:$target)]>;
 
-def BEQ : NDS32Inst<(outs), (ins GPR:$lhs, GPR:$rhs, brtarget:$dst),
-                    "beq\t$lhs, $rhs, $dst",
-                    [(NDS32br_cc SETEQ, GPR:$lhs, GPR:$rhs, bb:$dst)]>;
+def BEQ : Br15<0, (outs), (ins GPR:$rt, GPR:$ra, brtarget15:$target),
+                "beq\t$rt, $ra, $target",
+                [(NDS32br_cc SETEQ, GPR:$rt, GPR:$ra, bb:$target)]>;
 
-def BNE : NDS32Inst<(outs), (ins GPR:$lhs, GPR:$rhs, brtarget:$dst),
-                    "bne\t$lhs, $rhs, $dst",
-                    [(NDS32br_cc SETNE, GPR:$lhs, GPR:$rhs, bb:$dst)]>;
+def BNE : Br15<1, (outs), (ins GPR:$rt, GPR:$ra, brtarget15:$target),
+                "bne\t$rt, $ra, $target",
+                [(NDS32br_cc SETNE, GPR:$rt, GPR:$ra, bb:$target)]>;
 }
 
 // SETHI patterns: NDS32wrapper(tglobaladdr/texternalsym/tconstpool) → SETHI.
