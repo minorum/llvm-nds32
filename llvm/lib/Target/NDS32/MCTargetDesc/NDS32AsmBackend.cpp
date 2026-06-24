@@ -149,11 +149,17 @@ NDS32AsmBackend::createObjectTargetWriter() const {
 
 bool NDS32AsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
                                    const MCSubtargetInfo *STI) const {
-  if (Count % 4 != 0)
+  // With 16-bit instructions, code can sit on a 2-byte boundary, so aligning a
+  // jump table or the next function may leave a 2-byte gap. Fill 4 bytes at a
+  // time with the 32-bit nop, then a trailing 2-byte nop16 (0x9200) for an odd
+  // halfword. (A sub-halfword count cannot occur on this halfword-aligned ISA.)
+  if (Count % 2 != 0)
     return false;
 
-  for (uint64_t I = 0; I < Count; I += 4)
+  for (uint64_t I = 0, E = Count / 4; I < E; ++I)
     support::endian::write<uint32_t>(OS, 0x40000009, Endian);
+  if (Count % 4 != 0)
+    support::endian::write<uint16_t>(OS, 0x9200, Endian);
 
   return true;
 }

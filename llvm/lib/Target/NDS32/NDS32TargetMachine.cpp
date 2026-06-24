@@ -28,6 +28,26 @@ static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM) {
   return RM.value_or(Reloc::Static);
 }
 
+namespace {
+// Emit PIC jump tables into the function's own .text section. The default ELF
+// behavior puts them in .rodata and assumes a relative *data* relocation exists
+// for the EK_LabelDifference32 entries (LBB - LJTI). NDS32 has no 32-bit
+// PC-relative data relocation, so that cross-section difference would be
+// emitted as the (wrong) R_NDS32_25_PCREL branch relocation, corrupting the
+// table. Keeping the table in .text makes LBB - LJTI an intra-section
+// difference that folds to an assembly-time constant — matching the
+// `base + entry` runtime computation, no relocation needed.
+class NDS32ELFTargetObjectFile : public TargetLoweringObjectFileELF {
+public:
+  bool shouldPutJumpTableInFunctionSection(bool UsesLabelDifference,
+                                           const Function &F) const override {
+    // Only the label-difference (PIC) tables must live in .text; absolute
+    // (non-PIC) tables relocate fine from .rodata.
+    return UsesLabelDifference;
+  }
+};
+} // namespace
+
 static std::string computeDataLayout(const Triple &TT, StringRef CPU,
                                      const TargetOptions &Options) {
   if (TT.isLittleEndian())
@@ -44,7 +64,7 @@ NDS32TargetMachine::NDS32TargetMachine(const Target &T, const Triple &TT,
     : CodeGenTargetMachineImpl(T, computeDataLayout(TT, CPU, Options), TT, CPU,
                                FS, Options, getEffectiveRelocModel(RM),
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
-      TLOF(std::make_unique<TargetLoweringObjectFileELF>()),
+      TLOF(std::make_unique<NDS32ELFTargetObjectFile>()),
       Subtarget(TT, std::string(CPU), std::string(FS), *this) {
   initAsmInfo();
 }
