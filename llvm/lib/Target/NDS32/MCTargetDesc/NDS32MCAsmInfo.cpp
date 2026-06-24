@@ -9,6 +9,7 @@
 #include "NDS32MCAsmInfo.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Triple.h"
 using namespace llvm;
 
 void NDS32MCAsmInfo::anchor() {}
@@ -16,6 +17,11 @@ void NDS32MCAsmInfo::anchor() {}
 NDS32MCAsmInfo::NDS32MCAsmInfo(const Triple &TT) {
   CodePointerSize = 4;
   CalleeSaveStackSlotSize = 4;
+
+  // Drives the byte order of generic data emission (MCStreamer::emitIntValue);
+  // without this it defaults to little-endian and silently byte-reverses every
+  // global initializer on the big-endian nds32be target.
+  IsLittleEndian = TT.isLittleEndian();
 
   CommentString = "!";
   AlignmentIsInBytes = false;
