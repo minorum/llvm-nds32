@@ -100,8 +100,13 @@ void NDS32AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
       Mask = 0x0000ffff;
       break;
     case NDS32::fixup_nds32_25_pcrel:
-      Value = (Value / 2) & 0x01ffffff;
-      Mask = 0x01ffffff;
+      // j/jal/jral (J format): bit 24 is the link bit (j=0x48, jal=0x49) and the
+      // displacement field is only bits [23:0] (24 bits; the "25" is the
+      // disp<<1 range). The mask must NOT reach bit 24 — otherwise a backward
+      // (negative) displacement's sign bit flips an unconditional `b` (j) into
+      // `jal`, clobbering $lp and corrupting the return.
+      Value = (Value / 2) & 0x00ffffff;
+      Mask = 0x00ffffff;
       break;
     case NDS32::fixup_nds32_hi20:
       Value = (Value >> 12) & 0x000fffff;
