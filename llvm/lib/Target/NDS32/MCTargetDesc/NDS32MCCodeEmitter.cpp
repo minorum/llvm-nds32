@@ -46,6 +46,58 @@ public:
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
 
+  // OpNo-based operand EncoderMethods for the generated encoder. They wrap the
+  // existing helpers so both the hand-written switch and the TableGen encoder
+  // share the same encoding logic during the migration.
+  unsigned encodeImm15(const MCInst &MI, unsigned OpNo,
+                       SmallVectorImpl<MCFixup> &Fixups,
+                       const MCSubtargetInfo &STI) const {
+    return getImm16(MI, MI.getOperand(OpNo), Fixups, STI);
+  }
+  unsigned encodeImm20(const MCInst &MI, unsigned OpNo,
+                       SmallVectorImpl<MCFixup> &Fixups,
+                       const MCSubtargetInfo &STI) const {
+    return getImm20(MI, MI.getOperand(OpNo), Fixups, STI);
+  }
+  // Memory operands occupy Inst[19:0]: base register in [19:15], scaled offset
+  // in [14:0].
+  unsigned encodeMemWords(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &Fixups,
+                          const MCSubtargetInfo &STI) const {
+    return (getReg(MI.getOperand(OpNo)) << 15) |
+           getMemOffsetWords(MI, MI.getOperand(OpNo + 1), Fixups, STI);
+  }
+  unsigned encodeMemBytes(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &Fixups,
+                          const MCSubtargetInfo &STI) const {
+    return (getReg(MI.getOperand(OpNo)) << 15) |
+           getMemOffsetBytes(MI.getOperand(OpNo + 1));
+  }
+  unsigned encodeMemHalfwords(const MCInst &MI, unsigned OpNo,
+                              SmallVectorImpl<MCFixup> &Fixups,
+                              const MCSubtargetInfo &STI) const {
+    return (getReg(MI.getOperand(OpNo)) << 15) |
+           getMemOffsetHalfwords(MI.getOperand(OpNo + 1));
+  }
+  unsigned encodeBr25(const MCInst &MI, unsigned OpNo,
+                      SmallVectorImpl<MCFixup> &Fixups,
+                      const MCSubtargetInfo &STI) const {
+    return encodeBranchTarget(MI.getOperand(OpNo), Fixups,
+                              static_cast<MCFixupKind>(NDS32::fixup_nds32_25_pcrel));
+  }
+  unsigned encodeBr17(const MCInst &MI, unsigned OpNo,
+                      SmallVectorImpl<MCFixup> &Fixups,
+                      const MCSubtargetInfo &STI) const {
+    return encodeBranchTarget(MI.getOperand(OpNo), Fixups,
+                              static_cast<MCFixupKind>(NDS32::fixup_nds32_17_pcrel));
+  }
+  unsigned encodeBr15(const MCInst &MI, unsigned OpNo,
+                      SmallVectorImpl<MCFixup> &Fixups,
+                      const MCSubtargetInfo &STI) const {
+    return encodeBranchTarget(MI.getOperand(OpNo), Fixups,
+                              static_cast<MCFixupKind>(NDS32::fixup_nds32_15_pcrel));
+  }
+
 private:
   uint32_t getReg(const MCOperand &Op) const;
   uint32_t getImm16(const MCInst &MI, const MCOperand &Op,
@@ -357,14 +409,17 @@ void NDS32MCCodeEmitter::encodeInstruction(
            encodeBranchTarget(MI.getOperand(1), Fixups,
                               static_cast<MCFixupKind>(NDS32::fixup_nds32_17_pcrel));
     break;
+  // beq/bne base 0x4c000000 / 0x4c004000 (bit14 selects ne). The old
+  // 0x4c008000/0x4c00c000 set a spurious bit 15 that corrupted $ra for even
+  // source registers (same bug class as seb).
   case NDS32::BEQ:
-    Bits = 0x4c008000 | (getReg(MI.getOperand(0)) << 20) |
+    Bits = 0x4c000000 | (getReg(MI.getOperand(0)) << 20) |
            (getReg(MI.getOperand(1)) << 15) |
            encodeBranchTarget(MI.getOperand(2), Fixups,
                               static_cast<MCFixupKind>(NDS32::fixup_nds32_15_pcrel));
     break;
   case NDS32::BNE:
-    Bits = 0x4c00c000 | (getReg(MI.getOperand(0)) << 20) |
+    Bits = 0x4c004000 | (getReg(MI.getOperand(0)) << 20) |
            (getReg(MI.getOperand(1)) << 15) |
            encodeBranchTarget(MI.getOperand(2), Fixups,
                               static_cast<MCFixupKind>(NDS32::fixup_nds32_15_pcrel));
