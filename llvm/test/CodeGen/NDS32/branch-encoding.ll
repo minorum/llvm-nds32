@@ -24,18 +24,22 @@ eq:
   ret i32 %a
 }
 
-; A nonzero-test "icmp ne i32 %a, 0" lowers to a local forward "bnez" with a
-; small positive displacement (sub-opcode bit clear in the displacement). With
-; the buggy 17-bit mask the displacement cleared bit 16 and this encoded as
-; beqz (0x4e02....); it must stay bnez (0x4e03....).
+; A nonzero-test "icmp ne i32 %a, 0" lowers to "bnez". A short in-range bnez now
+; compresses to the 16-bit bnez38, so to exercise the 32-bit fixup mask we force
+; the target out of the +/-256B short-branch range (a big .fill in the
+; fall-through), which relaxes it back to the 32-bit bnez. The forward
+; displacement keeps bit 16 of disp/2 clear, so the buggy 17-bit mask would
+; clear the sub-opcode bit and encode beqz (0x4e02....); it must stay bnez
+; (0x4e03....).
 define i32 @bnez_local(i32 %a) {
 ; CHECK: 4e03
   %c = icmp ne i32 %a, 0
   br i1 %c, label %ne, label %eq, !prof !0
+eq:
+  call void asm sideeffect ".fill 400, 1, 0", ""()
+  ret i32 7
 ne:
   ret i32 42
-eq:
-  ret i32 7
 }
 
 !0 = !{!"branch_weights", i32 1, i32 2000}

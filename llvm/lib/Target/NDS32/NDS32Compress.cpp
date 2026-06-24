@@ -33,6 +33,11 @@ class NDS32Compress : public MachineFunctionPass {
     return TRI->getEncodingValue(MO.getReg());
   }
   bool low8(const MachineOperand &MO) const { return enc(MO) < 8; }
+  // Encodable in the add45/addi45 4-bit register field: r0-r11 or r16-r19.
+  bool gpr4(const MachineOperand &MO) const {
+    unsigned R = enc(MO);
+    return R <= 11 || (R >= 16 && R <= 19);
+  }
 
 public:
   static char ID;
@@ -59,6 +64,44 @@ bool NDS32Compress::runOnMachineFunction(MachineFunction &MF) {
       switch (MI.getOpcode()) {
       default:
         continue;
+      case NDS32::BEQZ:
+      case NDS32::BNEZ: {
+        // beqz/bnez $rt, target -> 16-bit beqz38/bnez38 when $rt is in $r0-$r7.
+        // The assembler relaxes back to the 32-bit form if the target is out of
+        // the +/-256B short-branch range.
+        const MachineOperand &Rt = MI.getOperand(0);
+        if (!Rt.isReg() || !low8(Rt))
+          continue;
+        unsigned NewOpc =
+            MI.getOpcode() == NDS32::BEQZ ? NDS32::BEQZ38 : NDS32::BNEZ38;
+        New = BuildMI(MBB, MI, DL, TII->get(NewOpc))
+                  .add(Rt).add(MI.getOperand(1));
+        break;
+      }
+      case NDS32::BR: {
+        // Unconditional b target -> 16-bit j8 (relaxed back if out of range).
+        New = BuildMI(MBB, MI, DL, TII->get(NDS32::J8)).add(MI.getOperand(0));
+        break;
+      }
+      case NDS32::ADDrr: {
+        // add $rt, $ra, $rb  ->  add45 $rt, $rb  when $rt is a source and is in
+        // the 4-bit register subset (commutative, so try either source).
+        const MachineOperand &Rt = MI.getOperand(0);
+        const MachineOperand &Ra = MI.getOperand(1);
+        const MachineOperand &Rb = MI.getOperand(2);
+        if (!gpr4(Rt))
+          continue;
+        Register Dst = Rt.getReg();
+        if (Ra.getReg() == Dst)
+          New = BuildMI(MBB, MI, DL, TII->get(NDS32::ADD45))
+                    .addReg(Dst, RegState::Define).addReg(Dst).add(Rb);
+        else if (Rb.getReg() == Dst)
+          New = BuildMI(MBB, MI, DL, TII->get(NDS32::ADD45))
+                    .addReg(Dst, RegState::Define).addReg(Dst).add(Ra);
+        else
+          continue;
+        break;
+      }
       case NDS32::ADDri: {
         const MachineOperand &Rt = MI.getOperand(0);
         const MachineOperand &Ra = MI.getOperand(1);
@@ -71,6 +114,12 @@ bool NDS32Compress::runOnMachineFunction(MachineFunction &MF) {
         } else if (low8(Rt) && low8(Ra) && Imm >= 0 && Imm <= 7) {
           New = BuildMI(MBB, MI, DL, TII->get(NDS32::ADDI333))
                     .add(Rt).add(Ra).addImm(Imm);
+        } else if (Rt.getReg() == Ra.getReg() && gpr4(Rt) && Imm >= 0 &&
+                   Imm <= 31) {
+          // addi $rt, $rt, imm5u  ->  addi45 $rt, imm  (read-modify-write).
+          New = BuildMI(MBB, MI, DL, TII->get(NDS32::ADDI45))
+                    .addReg(Rt.getReg(), RegState::Define)
+                    .addReg(Rt.getReg()).addImm(Imm);
         } else {
           continue;
         }

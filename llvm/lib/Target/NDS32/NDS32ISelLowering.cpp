@@ -160,6 +160,12 @@ const char *NDS32TargetLowering::getTargetNodeName(unsigned Opcode) const {
 static const MCPhysReg GPRArgRegs[] = {NDS32::R0, NDS32::R1, NDS32::R2,
                                        NDS32::R3, NDS32::R4, NDS32::R5};
 
+// Single-precision FP argument registers for the hard-float ABI ($fs0-$fs5).
+// This pool is allocated independently of the GPR pool (a float consumes an FPR
+// only, an int a GPR only), matching the Andes 2fp+ ABI.
+static const MCPhysReg FPRArgRegs[] = {NDS32::FS0, NDS32::FS1, NDS32::FS2,
+                                       NDS32::FS3, NDS32::FS4, NDS32::FS5};
+
 // Set LocVT/LocInfo for an i1/i8/i16 value promoted to i32. Returns true if a
 // promotion was applied.
 static void promoteToI32(MVT &LocVT, CCValAssign::LocInfo &LocInfo,
@@ -193,6 +199,21 @@ static bool CC_NDS32(unsigned ValNo, MVT ValVT, MVT LocVT,
                      CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
                      Type *OrigTy, CCState &State) {
   promoteToI32(LocVT, LocInfo, ArgFlags);
+
+  // Hard-float ABI: f32 goes in an FP register ($fs0-$fs5), independent of the
+  // GPR pool; overflow spills to a 4-byte stack slot.
+  if (LocVT == MVT::f32 &&
+      State.getMachineFunction()
+          .getSubtarget<NDS32Subtarget>()
+          .hasHardFloatABI()) {
+    if (MCRegister Reg = State.AllocateReg(FPRArgRegs)) {
+      State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+      return false;
+    }
+    unsigned Off = State.AllocateStack(4, Align(4));
+    State.addLoc(CCValAssign::getMem(ValNo, ValVT, Off, LocVT, LocInfo));
+    return false;
+  }
   coerceF32ToI32(LocVT, LocInfo);
 
   SmallVectorImpl<CCValAssign> &Pending = State.getPendingLocs();
@@ -247,6 +268,18 @@ static bool RetCC_NDS32(unsigned ValNo, MVT ValVT, MVT LocVT,
                         CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
                         Type *OrigTy, CCState &State) {
   promoteToI32(LocVT, LocInfo, ArgFlags);
+
+  // Hard-float ABI: f32 is returned in $fs0.
+  if (LocVT == MVT::f32 &&
+      State.getMachineFunction()
+          .getSubtarget<NDS32Subtarget>()
+          .hasHardFloatABI()) {
+    if (MCRegister Reg = State.AllocateReg(NDS32::FS0)) {
+      State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+      return false;
+    }
+    return true;
+  }
   coerceF32ToI32(LocVT, LocInfo);
   static const MCPhysReg RetRegs[] = {NDS32::R0, NDS32::R1};
   if (unsigned Reg = State.AllocateReg(RetRegs)) {
@@ -308,7 +341,11 @@ SDValue NDS32TargetLowering::LowerFormalArguments(
     if (VA.isRegLoc()) {
       // Mark the incoming physical register live-in and copy from the resulting
       // vreg (the machine verifier rejects copying from an undefined physreg).
-      Register VReg = MF.addLiveIn(VA.getLocReg(), &NDS32::GPRRegClass);
+      // f32 register locations (hard-float ABI) live in the FPR class.
+      const TargetRegisterClass *RC = VA.getLocVT() == MVT::f32
+                                          ? &NDS32::FPR32RegClass
+                                          : &NDS32::GPRRegClass;
+      Register VReg = MF.addLiveIn(VA.getLocReg(), RC);
       ArgVal = DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT());
     } else {
       int FI = MFI.CreateFixedObject(VA.getLocVT().getStoreSize(),

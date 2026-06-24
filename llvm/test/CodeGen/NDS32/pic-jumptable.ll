@@ -26,7 +26,7 @@ d: ret i32 -1
 ; PIC dispatch: table base in a reg, indexed load, add base, jump.
 ; CHECK-LABEL: jt:
 ; CHECK:      lw $r{{[0-9]+}}, [$r{{[0-9]+}} + $r{{[0-9]+}} << 2]
-; CHECK-NEXT: add $r{{[0-9]+}}, $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-NEXT: add45 $r{{[0-9]+}}, $r{{[0-9]+}}
 ; CHECK-NEXT: jr $r{{[0-9]+}}
 ; The table must remain in .text (no switch to .rodata before it) so the
 ; label differences fold to constants:

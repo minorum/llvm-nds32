@@ -34,6 +34,10 @@ class NDS32Subtarget : public NDS32GenSubtargetInfo {
   bool HasV3Ops = false;
   // Single-precision hardware FPU (AndeStar V3f).
   bool HasFPU = false;
+  // Hard-float ABI: pass/return single-precision floats in FP registers
+  // (Andes 2fp+ ABI). Opt-in on top of the FPU ISA, mirroring GCC's separation
+  // of -mext-fpu-sp (ISA) from -mfloat-abi=hard (ABI).
+  bool HasHardFloatABI = false;
 
   NDS32InstrInfo InstrInfo;
   NDS32TargetLowering TLInfo;
@@ -52,6 +56,7 @@ public:
   bool hasV2Ops() const { return HasV2Ops; }
   bool hasV3Ops() const { return HasV3Ops; }
   bool hasFPU() const { return HasFPU; }
+  bool hasHardFloatABI() const { return HasHardFloatABI; }
 
   const TargetFrameLowering *getFrameLowering() const override {
     return &FrameLowering;

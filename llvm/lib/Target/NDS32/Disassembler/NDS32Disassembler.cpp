@@ -14,6 +14,7 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Endian.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
 using namespace llvm::MCD;
@@ -66,6 +67,24 @@ static DecodeStatus DecodeFPR32RegisterClass(MCInst &Inst, unsigned RegNo,
   if (RegNo > 31)
     return MCDisassembler::Fail;
   Inst.addOperand(MCOperand::createReg(FPR32Table[RegNo]));
+  return MCDisassembler::Success;
+}
+
+// 16-bit short-branch target: 8-bit signed displacement, scaled by 2.
+static DecodeStatus decodeBr9(MCInst &Inst, unsigned Imm, uint64_t Address,
+                              const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<8>(Imm) * 2));
+  return MCDisassembler::Success;
+}
+
+// 16-bit add45/addi45 4-bit register field: codes 0-11 -> r0-r11,
+// codes 12-15 -> r16-r19 (inverse of encodeGPR4).
+static DecodeStatus decodeGPR4(MCInst &Inst, unsigned Code, uint64_t Address,
+                               const MCDisassembler *Decoder) {
+  if (Code > 15)
+    return MCDisassembler::Fail;
+  unsigned RegNo = Code <= 11 ? Code : Code + 4;
+  Inst.addOperand(MCOperand::createReg(GPRTable[RegNo]));
   return MCDisassembler::Success;
 }
 

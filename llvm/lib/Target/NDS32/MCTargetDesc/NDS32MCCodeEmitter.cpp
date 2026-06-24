@@ -100,6 +100,30 @@ public:
     return encodeBranchTarget(MI.getOperand(OpNo), Fixups,
                               static_cast<MCFixupKind>(NDS32::fixup_nds32_15_pcrel));
   }
+  // 16-bit short-branch target: 8-bit PC-relative displacement field (scaled by
+  // 2). A symbolic target emits a fixup_nds32_9_pcrel (which relaxation grows to
+  // a 32-bit branch if out of range, so it seldom survives to the object).
+  unsigned encodeBr9(const MCInst &MI, unsigned OpNo,
+                     SmallVectorImpl<MCFixup> &Fixups,
+                     const MCSubtargetInfo &STI) const {
+    const MCOperand &Op = MI.getOperand(OpNo);
+    if (Op.isImm())
+      return (static_cast<uint32_t>(Op.getImm()) >> 1) & 0xff;
+    assert(Op.isExpr() && "expected branch target expression");
+    Fixups.push_back(MCFixup::create(
+        0, Op.getExpr(), static_cast<MCFixupKind>(NDS32::fixup_nds32_9_pcrel),
+        /*PCRel=*/true));
+    return 0;
+  }
+  // 16-bit add45/addi45 4-bit register field: r0-r11 -> 0-11, r16-r19 -> 12-15.
+  unsigned encodeGPR4(const MCInst &MI, unsigned OpNo,
+                      SmallVectorImpl<MCFixup> &Fixups,
+                      const MCSubtargetInfo &STI) const {
+    unsigned Hw = MRI.getEncodingValue(MI.getOperand(OpNo).getReg());
+    assert((Hw <= 11 || (Hw >= 16 && Hw <= 19)) &&
+           "register not encodable in add45/addi45 4-bit field");
+    return Hw <= 11 ? Hw : Hw - 4;
+  }
   // 16-bit lwi333/swi333: 3-bit word offset.
   unsigned encodeOff3Words(const MCInst &MI, unsigned OpNo,
                            SmallVectorImpl<MCFixup> &Fixups,

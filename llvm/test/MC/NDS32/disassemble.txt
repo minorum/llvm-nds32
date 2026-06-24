@@ -8,3 +8,18 @@
 0x84 0x07
 # CHECK: lw $r0, [$r0 + $r1 << 2]
 0x38 0x00 0x06 0x02
+# add45/addi45: the 4-bit $rt field inverts the encoder remap (codes 12-15 ->
+# r16-r19), so these must decode back to the high registers.
+# CHECK: add45 $r0, $r1
+0x88 0x01
+# CHECK: add45 $r16, $r31
+0x89 0x9f
+# CHECK: addi45 $r19, 1
+0x8d 0xe1
+# 16-bit short branches: 3-bit register, 8-bit signed displacement (scaled by 2).
+# CHECK: beqz38 $r0, 8
+0xc0 0x04
+# CHECK: bnez38 $r3, -8
+0xcb 0xfc
+# CHECK: j8 32
+0xd5 0x10

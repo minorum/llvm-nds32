@@ -17,7 +17,7 @@ define i32 @add_const(i32 %x) {
 
 define i32 @add2(i32 %a, i32 %b) {
 ; CHECK-LABEL: add2:
-; CHECK: add	$r0, $r0, $r1
+; CHECK: add45	$r0, $r1
 ; CHECK-NEXT: ret
   %s = add i32 %a, %b
   ret i32 %s

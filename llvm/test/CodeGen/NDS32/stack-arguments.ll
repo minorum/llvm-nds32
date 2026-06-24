@@ -24,7 +24,7 @@ define i32 @incoming_stack_args(i32 %a0, i32 %a1, i32 %a2, i32 %a3,
 ; CHECK-LABEL: incoming_stack_args:
 ; CHECK:      lwi	$r0, [$r31 + 4]
 ; CHECK-NEXT:	lwi	$r1, [$r31 + 0]
-; CHECK-NEXT:	add	$r0, $r1, $r0
+; CHECK-NEXT:	add45	$r0, $r1
 ; CHECK-NEXT:	ret
 entry:
   %sum = add i32 %a6, %a7

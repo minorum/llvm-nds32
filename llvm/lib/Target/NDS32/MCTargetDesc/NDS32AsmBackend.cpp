@@ -6,9 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/NDS32FixupKinds.h"
 #include "MCTargetDesc/NDS32MCTargetDesc.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
+#include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -38,6 +40,14 @@ public:
 
   bool writeNopData(raw_ostream &OS, uint64_t Count,
                     const MCSubtargetInfo *STI) const override;
+
+  // 16-bit short-branch relaxation: beqz38/bnez38/j8 grow to their 32-bit forms
+  // (beqz/bnez/b) when the +/-256B displacement does not fit.
+  bool mayNeedRelaxation(unsigned Opcode, ArrayRef<MCOperand> Operands,
+                         const MCSubtargetInfo &STI) const override;
+  bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value) const override;
+  void relaxInstruction(MCInst &Inst,
+                        const MCSubtargetInfo &STI) const override;
 };
 } // namespace
 
@@ -60,7 +70,8 @@ NDS32AsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
     {"fixup_nds32_got_hi20",    0, 20, 0},
     {"fixup_nds32_got_lo12",    0, 15, 0},
     {"fixup_nds32_tls_le_hi20", 0, 20, 0},
-    {"fixup_nds32_tls_le_lo12", 0, 15, 0}
+    {"fixup_nds32_tls_le_lo12", 0, 15, 0},
+    {"fixup_nds32_9_pcrel",     0,  8, 0}
   };
 
   static_assert((std::size(Infos)) == NDS32::NumTargetFixupKinds,
@@ -120,6 +131,16 @@ void NDS32AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
       Value = (Value & 0x00000fff) >> 2;
       Mask = 0x00007fff; // offset15 in words in lwi/swi
       break;
+    case NDS32::fixup_nds32_9_pcrel: {
+      // 16-bit beqz38/bnez38/j8: 8-bit signed displacement field (bits [7:0]),
+      // scaled by 2. Relaxation guarantees the value is in range here. The host
+      // instruction is only 2 bytes, so apply a 16-bit (not 32-bit) write.
+      uint16_t Cur16 = support::endian::read16(Data, Endian);
+      Cur16 = (Cur16 & 0xff00) |
+              (static_cast<uint16_t>(Value / 2) & 0x00ff);
+      support::endian::write16(Data, Cur16, Endian);
+      return;
+    }
     // PIC fixups are always resolved by the linker (Value == 0 here), but mask
     // the same fields as their absolute counterparts for completeness.
     case NDS32::fixup_nds32_gotoff_hi20:
@@ -145,6 +166,39 @@ void NDS32AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
   Cur &= ~Mask;
   Cur |= static_cast<uint32_t>(Value) & Mask;
   support::endian::write32(Data, Cur, Endian);
+}
+
+bool NDS32AsmBackend::mayNeedRelaxation(unsigned Opcode,
+                                       ArrayRef<MCOperand> Operands,
+                                       const MCSubtargetInfo &STI) const {
+  switch (Opcode) {
+  case NDS32::BEQZ38:
+  case NDS32::BNEZ38:
+  case NDS32::J8:
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool NDS32AsmBackend::fixupNeedsRelaxation(const MCFixup &Fixup,
+                                          uint64_t Value) const {
+  if (Fixup.getKind() != static_cast<MCFixupKind>(NDS32::fixup_nds32_9_pcrel))
+    return false;
+  // The 8-bit displacement field is scaled by 2: in range iff the displacement
+  // is even and fits [-256, 254]. Anything else must grow to the 32-bit branch.
+  int64_t Disp = static_cast<int64_t>(Value);
+  return (Disp & 1) || Disp < -256 || Disp > 254;
+}
+
+void NDS32AsmBackend::relaxInstruction(MCInst &Inst,
+                                       const MCSubtargetInfo &STI) const {
+  switch (Inst.getOpcode()) {
+  case NDS32::BEQZ38: Inst.setOpcode(NDS32::BEQZ); break;
+  case NDS32::BNEZ38: Inst.setOpcode(NDS32::BNEZ); break;
+  case NDS32::J8:     Inst.setOpcode(NDS32::BR);   break;
+  default: break;
+  }
 }
 
 std::unique_ptr<MCObjectTargetWriter>

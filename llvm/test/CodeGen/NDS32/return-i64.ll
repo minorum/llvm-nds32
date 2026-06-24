@@ -15,15 +15,15 @@ define i64 @const_i64() {
 
 define i64 @test_i64_add(i64 %a, i64 %b) {
 ; CHECK-LABEL: test_i64_add:
-; CHECK-BE: add	$r0, $r0, $r2
+; CHECK-BE: add45	$r0, $r2
 ; CHECK-BE-NEXT: add	$r2, $r1, $r3
 ; CHECK-BE-NEXT: slt	$r1, $r2, $r1
-; CHECK-BE-NEXT: add	$r0, $r0, $r1
+; CHECK-BE-NEXT: add45	$r0, $r1
 ; CHECK-BE-NEXT: mov55	$r1, $r2
-; CHECK-LE: add	$r1, $r1, $r3
-; CHECK-LE-NEXT: add	$r2, $r0, $r2
+; CHECK-LE: add45	$r1, $r3
+; CHECK-LE-NEXT: add45	$r2, $r0
 ; CHECK-LE-NEXT: slt	$r0, $r2, $r0
-; CHECK-LE-NEXT: add	$r1, $r1, $r0
+; CHECK-LE-NEXT: add45	$r1, $r0
 ; CHECK-LE-NEXT: mov55	$r0, $r2
 ; CHECK-NEXT: ret
   %c = add i64 %a, %b

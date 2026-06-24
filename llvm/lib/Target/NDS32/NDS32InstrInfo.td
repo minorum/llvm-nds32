@@ -610,16 +610,19 @@ def MOVI55  : NDS32Inst16<(outs GPR:$rt), (ins i32imm:$imm),
   bits<5> rt; bits<5> imm;
   let Inst{15-10} = 0x21; let Inst{9-5} = rt; let Inst{4-0} = imm;
 }
+// add45/addi45: $rt is a 4-bit field (Inst[8:5], GPR4 subset, reg->code remapped
+// by encodeGPR4); the opcode occupies Inst[15:9]. add45 takes a full 5-bit $rb;
+// addi45 a 5-bit unsigned immediate. $rt is tied (read-modify-write).
 let Constraints = "$src = $rt" in {
-def ADD45  : NDS32Inst16<(outs GPR:$rt), (ins GPR:$src, GPR:$rb),
+def ADD45  : NDS32Inst16<(outs gpr4:$rt), (ins gpr4:$src, GPR:$rb),
                          "add45\t$rt, $rb"> {
-  bits<5> rt; bits<5> rb;
-  let Inst{15-10} = 0x22; let Inst{9-5} = rt; let Inst{4-0} = rb;
+  bits<4> rt; bits<5> rb;
+  let Inst{15-9} = 0x44; let Inst{8-5} = rt; let Inst{4-0} = rb;
 }
-def ADDI45 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$src, i32imm:$imm),
+def ADDI45 : NDS32Inst16<(outs gpr4:$rt), (ins gpr4:$src, i32imm:$imm),
                          "addi45\t$rt, $imm"> {
-  bits<5> rt; bits<5> imm;
-  let Inst{15-10} = 0x23; let Inst{9-5} = rt; let Inst{4-0} = imm;
+  bits<4> rt; bits<5> imm;
+  let Inst{15-9} = 0x46; let Inst{8-5} = rt; let Inst{4-0} = imm;
 }
 }
 def ADDI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, i32imm:$imm),
@@ -638,6 +641,34 @@ def SWI333 : NDS32Inst16<(outs), (ins GPR:$rt, GPR:$ra, off3words:$imm),
   bits<3> rt; bits<3> ra; bits<3> imm;
   let mayStore = 1;
   let Inst{15-9} = 0x54; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+
+// 16-bit short branches. The 8-bit displacement is PC-relative (scaled by 2),
+// giving a +/-256B range; out-of-range forms are grown to their 32-bit
+// equivalents (BEQZ/BNEZ/BR) by the assembler's relaxation pass. beqz38/bnez38
+// test a 3-bit register ($r0-$r7); the compress pass only emits them for that
+// subset.
+def brtarget9 : Operand<OtherVT> {
+  let EncoderMethod = "encodeBr9";
+  let DecoderMethod = "decodeBr9";
+}
+
+let isBranch = 1, isTerminator = 1 in {
+def BEQZ38 : NDS32Inst16<(outs), (ins GPR:$rt, brtarget9:$target),
+                         "beqz38\t$rt, $target"> {
+  bits<3> rt; bits<8> target;
+  let Inst{15-11} = 0x18; let Inst{10-8} = rt; let Inst{7-0} = target;
+}
+def BNEZ38 : NDS32Inst16<(outs), (ins GPR:$rt, brtarget9:$target),
+                         "bnez38\t$rt, $target"> {
+  bits<3> rt; bits<8> target;
+  let Inst{15-11} = 0x19; let Inst{10-8} = rt; let Inst{7-0} = target;
+}
+}
+let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+def J8 : NDS32Inst16<(outs), (ins brtarget9:$target), "j8\t$target"> {
+  bits<8> target;
+  let Inst{15-8} = 0xd5; let Inst{7-0} = target;
 }
 
 class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>

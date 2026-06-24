@@ -17,7 +17,7 @@ define i32 @cwide() { ret i32 305419896 } ; 0x12345678 = (0x12345<<12)|0x678
 ; addi is signed 15-bit; a wider addend is materialized then added by register.
 ; CHECK-LABEL: addwide:
 ; CHECK: movi $r1, 100000
-; CHECK: add $r0, $r0, $r1
+; CHECK: add45 $r0, $r1
 define i32 @addwide(i32 %x) {
   %r = add i32 %x, 100000
   ret i32 %r

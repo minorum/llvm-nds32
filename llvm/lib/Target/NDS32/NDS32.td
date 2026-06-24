@@ -16,6 +16,13 @@ def FeatureFPU : SubtargetFeature<"fpu", "HasFPU", "true",
                   "Support the single-precision hardware FPU (AndeStar V3f)",
                   [FeatureV3]>;
 def HasFPU : Predicate<"Subtarget->hasFPU()">;
+// Hard-float ABI (Andes 2fp+): single-precision floats are passed/returned in
+// FP registers instead of GPRs. Opt-in on top of the FPU ISA, mirroring GCC's
+// split of -mext-fpu-sp (ISA) from -mfloat-abi=hard (ABI). Enable with
+// `-mattr=+hard-float-abi` or the `v3f-hard` processor.
+def FeatureHardFloatABI : SubtargetFeature<"hard-float-abi", "HasHardFloatABI",
+                  "true", "Pass single-precision floats in FP registers "
+                  "(Andes 2fp+ hard-float ABI)", [FeatureFPU]>;
 
 include "NDS32RegisterInfo.td"
 include "NDS32InstrInfo.td"
@@ -44,6 +51,7 @@ def : ProcessorModel<"nds32",   NDS32SchedModel, [FeatureV2]>;
 def : ProcessorModel<"v2",      NDS32SchedModel, [FeatureV2]>;
 def : ProcessorModel<"v3",      NDS32SchedModel, [FeatureV3]>;
 def : ProcessorModel<"v3f",     NDS32SchedModel, [FeatureFPU]>;
+def : ProcessorModel<"v3f-hard", NDS32SchedModel, [FeatureHardFloatABI]>;
 
 def NDS32 : Target {
   let InstructionSet = NDS32InstrInfo;

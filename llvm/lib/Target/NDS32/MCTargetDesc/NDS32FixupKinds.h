@@ -33,6 +33,11 @@ enum Fixups {
   fixup_nds32_got_lo12,
   fixup_nds32_tls_le_hi20,
   fixup_nds32_tls_le_lo12,
+  // A 9-bit PC-relative fixup for the 16-bit beqz38/bnez38/j8 short branches
+  // (8-bit displacement field, scaled by 2 -> +/-256B range). Out-of-range
+  // short branches are grown to their 32-bit forms by the relaxation pass, so
+  // this rarely (if ever) reaches the object as a relocation.
+  fixup_nds32_9_pcrel,
 
   LastTargetFixupKind,
   NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind

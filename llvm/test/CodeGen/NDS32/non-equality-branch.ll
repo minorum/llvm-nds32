@@ -77,7 +77,7 @@ f:
 define i32 @select_slt_reg(i32 %a, i32 %b) {
 ; CHECK-LABEL: select_slt_reg:
 ; CHECK: slts	$r0, $r0, $r1
-; CHECK: beqz	$r0, .LBB4_2
+; CHECK: beqz38	$r0, .LBB4_2
 ; CHECK: movi55	$r0, 1
 ; CHECK: ret
 ; CHECK: .LBB4_2:
@@ -97,7 +97,7 @@ f:
 define i32 @select_ult_reg(i32 %a, i32 %b) {
 ; CHECK-LABEL: select_ult_reg:
 ; CHECK: slt	$r0, $r0, $r1
-; CHECK: beqz	$r0, .LBB5_2
+; CHECK: beqz38	$r0, .LBB5_2
 ; CHECK: movi55	$r0, 1
 ; CHECK: ret
 ; CHECK: .LBB5_2:

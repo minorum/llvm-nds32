@@ -3,7 +3,7 @@
 define void @spin() {
 ; CHECK-LABEL: spin:
 ; CHECK: .LBB0_1:
-; CHECK: b	.LBB0_1
+; CHECK: j8	.LBB0_1
 entry:
   br label %loop
 
@@ -13,7 +13,7 @@ loop:
 
 define i32 @select_eq_zero(i32 %x) {
 ; CHECK-LABEL: select_eq_zero:
-; CHECK: beqz	$r0, .LBB1_1
+; CHECK: beqz38	$r0, .LBB1_1
 ; CHECK: movi55	$r0, 0
 ; CHECK: ret
 ; CHECK: .LBB1_1:

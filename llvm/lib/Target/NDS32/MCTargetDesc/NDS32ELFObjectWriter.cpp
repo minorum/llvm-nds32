@@ -18,6 +18,7 @@ using namespace llvm;
 namespace {
 enum NDS32Relocs {
   R_NDS32_32_RELA = 20,
+  R_NDS32_9_PCREL_RELA = 22,
   R_NDS32_15_PCREL_RELA = 23,
   R_NDS32_17_PCREL_RELA = 24,
   R_NDS32_25_PCREL_RELA = 25,
@@ -51,6 +52,8 @@ unsigned NDS32ELFObjectWriter::getRelocType(const MCFixup &Fixup,
   unsigned Kind = Fixup.getKind();
   if (Kind >= FirstTargetFixupKind) {
     switch (Kind) {
+    case NDS32::fixup_nds32_9_pcrel:
+      return R_NDS32_9_PCREL_RELA;
     case NDS32::fixup_nds32_15_pcrel:
       return R_NDS32_15_PCREL_RELA;
     case NDS32::fixup_nds32_17_pcrel:

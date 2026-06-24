@@ -7,7 +7,7 @@
 ; %a=$r0, %b=$r2:$r3 ($r1 is padding), %c=$r4.
 define i32 @mixed(i32 %a, i64 %b, i32 %c) {
 ; CHECK-LABEL: mixed:
-; CHECK: add	$r0, $r0, $r4
+; CHECK: add45	$r0, $r4
 ; CHECK: ret
   %r = add i32 %a, %c
   ret i32 %r
