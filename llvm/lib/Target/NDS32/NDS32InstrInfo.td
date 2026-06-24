@@ -219,8 +219,41 @@ def addr : ComplexPattern<iPTR, 2, "selectMemAddr", [frameindex]>;
 def memrr : Operand<i32> {
   let PrintMethod = "printRegOffsetMem";
   let MIOperandInfo = (ops GPR, GPR, i32imm);
+  let EncoderMethod = "encodeRegOffset";
 }
 def regoaddr : ComplexPattern<iPTR, 3, "selectRegOffsetAddr", []>;
+
+// Post-increment byte increment, scaled to element units by the EncoderMethod.
+def postimm_b : Operand<i32> { let EncoderMethod = "encodePostByte"; }
+def postimm_h : Operand<i32> { let EncoderMethod = "encodePostHalf"; }
+def postimm_w : Operand<i32> { let EncoderMethod = "encodePostWord"; }
+// 16-bit lwi333/swi333 word offset.
+def off3words : Operand<i32> { let EncoderMethod = "encodeOff3Words"; }
+
+// Register-offset load/store: op6=0x1c, rt, packed base/index/scale in [19:8],
+// 8-bit sub-opcode in [7:0].
+class RegOffF<bits<8> sub, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<12> addr;
+  let Inst{31-25} = 0x1c;
+  let Inst{24-20} = rt;
+  let Inst{19-8} = addr;
+  let Inst{7-0} = sub;
+}
+
+// Post-increment load/store: op6 selects the form; rt, base ra, 15-bit
+// element-scaled increment. The writeback base is a tied output (not encoded).
+class PostF<bits<7> op6, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<5> ra;
+  bits<15> imm;
+  let Inst{31-25} = op6;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = ra;
+  let Inst{14-0} = imm;
+}
 
 // Immediate-range predicates matching each instruction's encoded field width
 // (verified against the Andes assembler): addi/slti/sltsi take a signed 15-bit
@@ -441,30 +474,30 @@ def SHI : MemF<0x09, (outs), (ins GPR:$rt, memri16:$addr),
                [(truncstorei16 GPR:$rt, addr:$addr)]>;
 
 // Register-offset loads and stores: address = base + (index << scale).
-def LW_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
-                      "lw\t$rt, [$addr]",
-                      [(set GPR:$rt, (load regoaddr:$addr))]>;
-def LB_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
-                      "lb\t$rt, [$addr]",
-                      [(set GPR:$rt, (zextloadi8 regoaddr:$addr))]>;
-def LBS_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
-                       "lbs\t$rt, [$addr]",
-                       [(set GPR:$rt, (sextloadi8 regoaddr:$addr))]>;
-def LH_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
-                      "lh\t$rt, [$addr]",
-                      [(set GPR:$rt, (zextloadi16 regoaddr:$addr))]>;
-def LHS_RR : NDS32Inst<(outs GPR:$rt), (ins memrr:$addr),
-                       "lhs\t$rt, [$addr]",
-                       [(set GPR:$rt, (sextloadi16 regoaddr:$addr))]>;
-def SW_RR : NDS32Inst<(outs), (ins GPR:$rt, memrr:$addr),
-                      "sw\t$rt, [$addr]",
-                      [(store GPR:$rt, regoaddr:$addr)]>;
-def SB_RR : NDS32Inst<(outs), (ins GPR:$rt, memrr:$addr),
-                      "sb\t$rt, [$addr]",
-                      [(truncstorei8 GPR:$rt, regoaddr:$addr)]>;
-def SH_RR : NDS32Inst<(outs), (ins GPR:$rt, memrr:$addr),
-                      "sh\t$rt, [$addr]",
-                      [(truncstorei16 GPR:$rt, regoaddr:$addr)]>;
+def LW_RR : RegOffF<0x02, (outs GPR:$rt), (ins memrr:$addr),
+                    "lw\t$rt, [$addr]",
+                    [(set GPR:$rt, (load regoaddr:$addr))]>;
+def LB_RR : RegOffF<0x00, (outs GPR:$rt), (ins memrr:$addr),
+                    "lb\t$rt, [$addr]",
+                    [(set GPR:$rt, (zextloadi8 regoaddr:$addr))]>;
+def LBS_RR : RegOffF<0x10, (outs GPR:$rt), (ins memrr:$addr),
+                     "lbs\t$rt, [$addr]",
+                     [(set GPR:$rt, (sextloadi8 regoaddr:$addr))]>;
+def LH_RR : RegOffF<0x01, (outs GPR:$rt), (ins memrr:$addr),
+                    "lh\t$rt, [$addr]",
+                    [(set GPR:$rt, (zextloadi16 regoaddr:$addr))]>;
+def LHS_RR : RegOffF<0x11, (outs GPR:$rt), (ins memrr:$addr),
+                     "lhs\t$rt, [$addr]",
+                     [(set GPR:$rt, (sextloadi16 regoaddr:$addr))]>;
+def SW_RR : RegOffF<0x0a, (outs), (ins GPR:$rt, memrr:$addr),
+                    "sw\t$rt, [$addr]",
+                    [(store GPR:$rt, regoaddr:$addr)]>;
+def SB_RR : RegOffF<0x08, (outs), (ins GPR:$rt, memrr:$addr),
+                    "sb\t$rt, [$addr]",
+                    [(truncstorei8 GPR:$rt, regoaddr:$addr)]>;
+def SH_RR : RegOffF<0x09, (outs), (ins GPR:$rt, memrr:$addr),
+                    "sh\t$rt, [$addr]",
+                    [(truncstorei16 GPR:$rt, regoaddr:$addr)]>;
 def : Pat<(i32 (extloadi8 regoaddr:$addr)),  (LB_RR memrr:$addr)>;
 def : Pat<(i32 (extloadi16 regoaddr:$addr)), (LH_RR memrr:$addr)>;
 def : Pat<(i32 (extloadi1 regoaddr:$addr)),  (LB_RR memrr:$addr)>;
@@ -473,24 +506,24 @@ def : Pat<(i32 (extloadi1 regoaddr:$addr)),  (LB_RR memrr:$addr)>;
 // encoder scales by the element size). $ra is tied to the writeback $ra_wb.
 // These are selected in C++ from POST_INC indexed loads/stores (no pattern).
 let Constraints = "$ra = $ra_wb", mayLoad = 1 in {
-def LBI_POST  : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
-                          "lbi.bi\t$rt, [$ra], $imm", []>;
-def LBSI_POST : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
-                          "lbsi.bi\t$rt, [$ra], $imm", []>;
-def LHI_POST  : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
-                          "lhi.bi\t$rt, [$ra], $imm", []>;
-def LHSI_POST : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
-                          "lhsi.bi\t$rt, [$ra], $imm", []>;
-def LWI_POST  : NDS32Inst<(outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, i32imm:$imm),
-                          "lwi.bi\t$rt, [$ra], $imm", []>;
+def LBI_POST  : PostF<0x04, (outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, postimm_b:$imm),
+                      "lbi.bi\t$rt, [$ra], $imm", []>;
+def LBSI_POST : PostF<0x14, (outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, postimm_b:$imm),
+                      "lbsi.bi\t$rt, [$ra], $imm", []>;
+def LHI_POST  : PostF<0x05, (outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, postimm_h:$imm),
+                      "lhi.bi\t$rt, [$ra], $imm", []>;
+def LHSI_POST : PostF<0x15, (outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, postimm_h:$imm),
+                      "lhsi.bi\t$rt, [$ra], $imm", []>;
+def LWI_POST  : PostF<0x06, (outs GPR:$rt, GPR:$ra_wb), (ins GPR:$ra, postimm_w:$imm),
+                      "lwi.bi\t$rt, [$ra], $imm", []>;
 }
 let Constraints = "$ra = $ra_wb", mayStore = 1 in {
-def SBI_POST : NDS32Inst<(outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
-                         "sbi.bi\t$rt, [$ra], $imm", []>;
-def SHI_POST : NDS32Inst<(outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
-                         "shi.bi\t$rt, [$ra], $imm", []>;
-def SWI_POST : NDS32Inst<(outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
-                         "swi.bi\t$rt, [$ra], $imm", []>;
+def SBI_POST : PostF<0x0c, (outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, postimm_b:$imm),
+                     "sbi.bi\t$rt, [$ra], $imm", []>;
+def SHI_POST : PostF<0x0d, (outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, postimm_h:$imm),
+                     "shi.bi\t$rt, [$ra], $imm", []>;
+def SWI_POST : PostF<0x0e, (outs GPR:$ra_wb), (ins GPR:$rt, GPR:$ra, postimm_w:$imm),
+                     "swi.bi\t$rt, [$ra], $imm", []>;
 }
 
 // Any-extending narrow loads (don't care about the high bits): reuse the
@@ -546,21 +579,44 @@ class NDS32Inst16<dag outs, dag ins, string asmstr> : Instruction {
   field bits<16> Inst;
 }
 
-def MOV55   : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra), "mov55\t$rt, $ra">;
+def MOV55   : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra), "mov55\t$rt, $ra"> {
+  bits<5> rt; bits<5> ra;
+  let Inst{15-10} = 0x20; let Inst{9-5} = rt; let Inst{4-0} = ra;
+}
 def MOVI55  : NDS32Inst16<(outs GPR:$rt), (ins i32imm:$imm),
-                          "movi55\t$rt, $imm">;
+                          "movi55\t$rt, $imm"> {
+  bits<5> rt; bits<5> imm;
+  let Inst{15-10} = 0x21; let Inst{9-5} = rt; let Inst{4-0} = imm;
+}
 let Constraints = "$src = $rt" in {
 def ADD45  : NDS32Inst16<(outs GPR:$rt), (ins GPR:$src, GPR:$rb),
-                         "add45\t$rt, $rb">;
+                         "add45\t$rt, $rb"> {
+  bits<5> rt; bits<5> rb;
+  let Inst{15-10} = 0x22; let Inst{9-5} = rt; let Inst{4-0} = rb;
+}
 def ADDI45 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$src, i32imm:$imm),
-                         "addi45\t$rt, $imm">;
+                         "addi45\t$rt, $imm"> {
+  bits<5> rt; bits<5> imm;
+  let Inst{15-10} = 0x23; let Inst{9-5} = rt; let Inst{4-0} = imm;
+}
 }
 def ADDI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, i32imm:$imm),
-                          "addi333\t$rt, $ra, $imm">;
-def LWI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, i32imm:$imm),
-                         "lwi333\t$rt, [$ra + $imm]"> { let mayLoad = 1; }
-def SWI333 : NDS32Inst16<(outs), (ins GPR:$rt, GPR:$ra, i32imm:$imm),
-                         "swi333\t$rt, [$ra + $imm]"> { let mayStore = 1; }
+                          "addi333\t$rt, $ra, $imm"> {
+  bits<3> rt; bits<3> ra; bits<3> imm;
+  let Inst{15-9} = 0x4e; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+def LWI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, off3words:$imm),
+                         "lwi333\t$rt, [$ra + $imm]"> {
+  bits<3> rt; bits<3> ra; bits<3> imm;
+  let mayLoad = 1;
+  let Inst{15-9} = 0x50; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+def SWI333 : NDS32Inst16<(outs), (ins GPR:$rt, GPR:$ra, off3words:$imm),
+                         "swi333\t$rt, [$ra + $imm]"> {
+  bits<3> rt; bits<3> ra; bits<3> imm;
+  let mayStore = 1;
+  let Inst{15-9} = 0x54; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
 
 class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
     : Instruction {

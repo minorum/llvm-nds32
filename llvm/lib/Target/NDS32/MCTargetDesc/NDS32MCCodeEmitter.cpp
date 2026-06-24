@@ -97,6 +97,44 @@ public:
     return encodeBranchTarget(MI.getOperand(OpNo), Fixups,
                               static_cast<MCFixupKind>(NDS32::fixup_nds32_15_pcrel));
   }
+  // 16-bit lwi333/swi333: 3-bit word offset.
+  unsigned encodeOff3Words(const MCInst &MI, unsigned OpNo,
+                           SmallVectorImpl<MCFixup> &Fixups,
+                           const MCSubtargetInfo &STI) const {
+    return (static_cast<uint32_t>(MI.getOperand(OpNo).getImm()) >> 2) & 0x7;
+  }
+  // Register-offset memory: base[19:15] + index[14:10] + scale[9:8] packed into
+  // the 12-bit field Inst[19:8].
+  unsigned encodeRegOffset(const MCInst &MI, unsigned OpNo,
+                           SmallVectorImpl<MCFixup> &Fixups,
+                           const MCSubtargetInfo &STI) const {
+    return (getReg(MI.getOperand(OpNo)) << 7) |
+           (getReg(MI.getOperand(OpNo + 1)) << 2) |
+           (static_cast<uint32_t>(MI.getOperand(OpNo + 2).getImm()) & 0x3);
+  }
+  // Post-increment immediate: byte increment scaled to element units (15-bit).
+  template <unsigned Shift>
+  unsigned encodePostInc(const MCInst &MI, unsigned OpNo,
+                         SmallVectorImpl<MCFixup> &Fixups,
+                         const MCSubtargetInfo &STI) const {
+    return (static_cast<uint32_t>(MI.getOperand(OpNo).getImm()) >> Shift) &
+           0x7fff;
+  }
+  unsigned encodePostByte(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &F,
+                          const MCSubtargetInfo &S) const {
+    return encodePostInc<0>(MI, OpNo, F, S);
+  }
+  unsigned encodePostHalf(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &F,
+                          const MCSubtargetInfo &S) const {
+    return encodePostInc<1>(MI, OpNo, F, S);
+  }
+  unsigned encodePostWord(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &F,
+                          const MCSubtargetInfo &S) const {
+    return encodePostInc<2>(MI, OpNo, F, S);
+  }
 
 private:
   uint32_t getReg(const MCOperand &Op) const;
