@@ -5,8 +5,8 @@
 ; $r1-$r5 are spilled and va_list points at $r1's slot.
 
 ; CHECK-LABEL: sum2:
-; CHECK: swi $r1, [$r31 + {{[0-9]+}}]
-; CHECK: swi $r5, [$r31 + {{[0-9]+}}]
+; CHECK: swi $r5, [$r31 + 20]
+; CHECK: swi $r1, [$r31 + 4]
 define i32 @sum2(i32 %n, ...) {
 entry:
   %ap = alloca ptr

@@ -46,9 +46,9 @@ define i64 @shl64(i64 %a, i64 %b) {
 ; Loads/stores split into two words; the high word is at the lower offset.
 define i64 @ld64(ptr %p) {
 ; CHECK-LABEL: ld64:
-; CHECK:      lwi	$r2, [$r0 + 0]
-; CHECK-NEXT: lwi	$r1, [$r0 + 4]
-; CHECK-NEXT: addi	$r0, $r2, 0
+; CHECK:      lwi333	$r2, [$r0 + 0]
+; CHECK-NEXT: lwi333	$r1, [$r0 + 4]
+; CHECK-NEXT: mov55	$r0, $r2
 ; CHECK-NEXT: ret
   %r = load i64, ptr %p
   ret i64 %r
@@ -56,8 +56,8 @@ define i64 @ld64(ptr %p) {
 
 define void @st64(ptr %p, i64 %v) {
 ; CHECK-LABEL: st64:
-; CHECK:      swi	$r1, [$r0 + 0]
-; CHECK-NEXT: swi	$r2, [$r0 + 4]
+; CHECK:      swi333	$r2, [$r0 + 0]
+; CHECK-NEXT: swi333	$r3, [$r0 + 4]
 ; CHECK-NEXT: ret
   store i64 %v, ptr %p
   ret void
@@ -65,15 +65,18 @@ define void @st64(ptr %p, i64 %v) {
 
 ; Signed i64 compare: equal high words fall back to an unsigned low-word
 ; compare, otherwise a signed high-word compare. The high-word equality test
-; is a local forward bnez.
+; selects between the two results branchlessly via a cmovn/cmovz pair.
 define i32 @slt64(i64 %a, i64 %b) {
 ; CHECK-LABEL: slt64:
-; CHECK:      slt	{{.*}}
-; CHECK:      bnez	{{.*}}
-; CHECK:      slts	$r0, $r0, $r2
-; CHECK:      ret
-; CHECK:      slt	$r0, $r1, $r3
-; CHECK:      ret
+; CHECK:      slt	$r1, $r1, $r3
+; CHECK-NEXT: slts	$r3, $r0, $r2
+; CHECK-NEXT: xor	$r0, $r0, $r2
+; CHECK-NEXT: movi55	$r2, 0
+; CHECK-NEXT: slt	$r0, $r2, $r0
+; CHECK-NEXT: xori	$r2, $r0, 1
+; CHECK-NEXT: cmovn	$r0, $r1, $r2
+; CHECK-NEXT: cmovz	$r0, $r3, $r2
+; CHECK-NEXT: ret
   %c = icmp slt i64 %a, %b
   %z = zext i1 %c to i32
   ret i32 %z

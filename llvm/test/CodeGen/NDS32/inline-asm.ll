@@ -33,7 +33,7 @@ define i32 @asm_K(i32 %a) {
 }
 
 ; CHECK-LABEL: asm_mem:
-; CHECK: lwi $r{{[0-9]+}}, [$r{{[0-9]+}}]
+; CHECK: lwi $r{{[0-9]+}}, [$r{{[0-9]+}} + 0]
 define i32 @asm_mem(ptr %p) {
   %r = call i32 asm "lwi $0, $1", "=r,*m"(ptr elementtype(i32) %p)
   ret i32 %r

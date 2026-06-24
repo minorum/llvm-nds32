@@ -6,7 +6,7 @@ define i32 @load_global() {
 ; CHECK-LABEL: load_global:
 ; CHECK:      sethi $r0, hi20(foo)
 ; CHECK-NEXT: addi $r0, $r0, lo12(foo)
-; CHECK-NEXT: lwi $r0, [$r0 + 0]
+; CHECK-NEXT: lwi333 $r0, [$r0 + 0]
 ; CHECK-NEXT: ret
 entry:
   %val = load i32, ptr @foo, align 4
@@ -17,7 +17,7 @@ define void @store_global(i32 %val) {
 ; CHECK-LABEL: store_global:
 ; CHECK:      sethi $r1, hi20(foo)
 ; CHECK-NEXT: addi $r1, $r1, lo12(foo)
-; CHECK-NEXT: swi $r0, [$r1 + 0]
+; CHECK-NEXT: swi333 $r0, [$r1 + 0]
 ; CHECK-NEXT: ret
 entry:
   store i32 %val, ptr @foo, align 4

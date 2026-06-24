@@ -14,13 +14,13 @@ define i32 @test_callee_saves(i32 %a, i32 %b) {
 ; CHECK-NEXT:	swi	$r30, [$r31 + 4]
 ; CHECK:      jal	external_func
 ; CHECK:      jal	external_func
-; CHECK:      lwi	$r30, [$r31 + 4]
-; CHECK-NEXT:	lwi	$r11, [$r31 + 8]
-; CHECK-NEXT:	lwi	$r10, [$r31 + 12]
-; CHECK-NEXT:	lwi	$r9, [$r31 + 16]
-; CHECK-NEXT:	lwi	$r8, [$r31 + 20]
+; CHECK:      lwi	$r6, [$r31 + 28]
 ; CHECK-NEXT:	lwi	$r7, [$r31 + 24]
-; CHECK-NEXT:	lwi	$r6, [$r31 + 28]
+; CHECK-NEXT:	lwi	$r8, [$r31 + 20]
+; CHECK-NEXT:	lwi	$r9, [$r31 + 16]
+; CHECK-NEXT:	lwi	$r10, [$r31 + 12]
+; CHECK-NEXT:	lwi	$r11, [$r31 + 8]
+; CHECK-NEXT:	lwi	$r30, [$r31 + 4]
 ; CHECK-NEXT:	addi	$r31, $r31, 32
 ; CHECK-NEXT:	ret
 entry:

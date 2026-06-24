@@ -16,8 +16,8 @@ define i32 @mixed(i32 %a, i64 %b, i32 %c) {
 ; %a,%b,%c=$r0,$r1,$r2, %d=$r4:$r5 ($r3 is padding); returned in $r0:$r1.
 define i64 @oddalign(i32 %a, i32 %b, i32 %c, i64 %d) {
 ; CHECK-LABEL: oddalign:
-; CHECK: addi	$r1, $r5, 0
-; CHECK: addi	$r0, $r4, 0
+; CHECK: mov55	$r1, $r5
+; CHECK: mov55	$r0, $r4
 ; CHECK: ret
   ret i64 %d
 }
@@ -25,8 +25,9 @@ define i64 @oddalign(i32 %a, i32 %b, i32 %c, i64 %d) {
 ; i64 return: high word in $r0, low word in $r1.
 define i64 @retll() {
 ; CHECK-LABEL: retll:
+; CHECK: sethi	$r0, 466864
+; CHECK: ori	$r1, $r0, 1227
 ; CHECK: movi	$r0, 287
-; CHECK: movi	$r1, 1912276171
 ; CHECK: ret
   ret i64 1234567890123
 }

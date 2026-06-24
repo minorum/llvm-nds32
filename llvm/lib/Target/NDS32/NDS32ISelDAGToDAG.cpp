@@ -188,6 +188,14 @@ bool NDS32DAGToDAGISel::selectRegOffsetAddr(SDValue Addr, SDValue &Base,
   SDValue LHS = Addr.getOperand(0);
   SDValue RHS = Addr.getOperand(1);
 
+  // A symbolic address is materialized as ADD(Wrapper(HI20), Wrapper(LO12))
+  // (a global/constant-pool/jump-table/external fragment). Those Wrapper
+  // operands are not runtime register values, so this ADD must lower to
+  // SETHI+ADDri via its own pattern — not be folded into a reg+reg load.
+  if (LHS.getOpcode() == NDS32ISD::Wrapper ||
+      RHS.getOpcode() == NDS32ISD::Wrapper)
+    return false;
+
   auto tryShift = [&](SDValue ShlSide, SDValue OtherSide) {
     if (ShlSide.getOpcode() != ISD::SHL)
       return false;

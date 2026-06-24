@@ -24,14 +24,18 @@ eq:
   ret i32 %a
 }
 
-; An i64 signed compare lowers to a local forward "bnez" on the high-word
-; equality. With the buggy 17-bit mask the displacement cleared bit 16 and this
-; encoded as beqz (0x4e42....); it must stay bnez (0x4e43....).
-define i32 @bnez_local(i64 %a, i64 %b) {
-; CHECK: 4e43
-  %c = icmp slt i64 %a, %b
-  %z = zext i1 %c to i32
-  ret i32 %z
+; A nonzero-test "icmp ne i32 %a, 0" lowers to a local forward "bnez" with a
+; small positive displacement (sub-opcode bit clear in the displacement). With
+; the buggy 17-bit mask the displacement cleared bit 16 and this encoded as
+; beqz (0x4e02....); it must stay bnez (0x4e03....).
+define i32 @bnez_local(i32 %a) {
+; CHECK: 4e03
+  %c = icmp ne i32 %a, 0
+  br i1 %c, label %ne, label %eq, !prof !0
+ne:
+  ret i32 42
+eq:
+  ret i32 7
 }
 
 !0 = !{!"branch_weights", i32 1, i32 2000}

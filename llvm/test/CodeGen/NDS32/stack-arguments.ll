@@ -4,17 +4,15 @@ declare void @callee8(i32, i32, i32, i32, i32, i32, i32, i32)
 
 define void @call_stack_args() {
 ; CHECK-LABEL: call_stack_args:
-; CHECK:      addi	$r31, $r31, -8
-; CHECK-NEXT:	swi	$r30, [$r31 + 4]
-; CHECK:      addi	$r31, $r31, -8
-; CHECK-NEXT:	movi	$r0, 8
+; CHECK:      addi	$r31, $r31, -16
+; CHECK-NEXT:	swi	$r30, [$r31 + 12]
+; CHECK-NEXT:	movi55	$r0, 8
 ; CHECK-NEXT:	swi	$r0, [$r31 + 4]
-; CHECK-NEXT:	movi	$r0, 7
+; CHECK-NEXT:	movi55	$r0, 7
 ; CHECK-NEXT:	swi	$r0, [$r31 + 0]
 ; CHECK:      jal	callee8
-; CHECK-NEXT:	addi	$r31, $r31, 8
-; CHECK-NEXT:	lwi	$r30, [$r31 + 4]
-; CHECK-NEXT:	addi	$r31, $r31, 8
+; CHECK-NEXT:	lwi	$r30, [$r31 + 12]
+; CHECK-NEXT:	addi	$r31, $r31, 16
 ; CHECK-NEXT:	ret
 entry:
   call void @callee8(i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8)

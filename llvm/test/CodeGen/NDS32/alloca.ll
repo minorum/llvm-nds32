@@ -8,11 +8,11 @@
 ; establishing the new frame pointer.
 ; CHECK: addi $r31, $r31, -{{[0-9]+}}
 ; CHECK: swi $r28, [$r31 + {{[0-9]+}}]
-; CHECK: addi $r28, $r31, 0
+; CHECK: mov55 $r28, $r31
 ; The alloca subtracts the (aligned) size from $sp.
 ; CHECK: sub $r{{[0-9]+}}, $r31, $r{{[0-9]+}}
 ; Epilogue: restore $sp from $fp, reload the old $fp, then deallocate.
-; CHECK: addi $r31, $r28, 0
+; CHECK: mov55 $r31, $r28
 ; CHECK: lwi $r28, [$r31 + {{[0-9]+}}]
 ; CHECK: ret
 define i32 @dyn(i32 %n) {
@@ -24,7 +24,7 @@ define i32 @dyn(i32 %n) {
 
 ; __builtin_frame_address forces a frame pointer too.
 ; CHECK-LABEL: fa:
-; CHECK: addi $r28, $r31, 0
+; CHECK: mov55 $r28, $r31
 define ptr @fa() {
   %r = call ptr @llvm.frameaddress.p0(i32 0)
   ret ptr %r

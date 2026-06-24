@@ -2,7 +2,7 @@
 
 define i32 @load_arg_ptr(ptr %p) {
 ; CHECK-LABEL: load_arg_ptr:
-; CHECK: lwi	$r0, [$r0 + 0]
+; CHECK: lwi333	$r0, [$r0 + 0]
 ; CHECK: ret
 entry:
   %v = load i32, ptr %p, align 4
@@ -11,7 +11,7 @@ entry:
 
 define void @store_arg_ptr(ptr %p, i32 %x) {
 ; CHECK-LABEL: store_arg_ptr:
-; CHECK: swi	$r1, [$r0 + 0]
+; CHECK: swi333	$r1, [$r0 + 0]
 ; CHECK: ret
 entry:
   store i32 %x, ptr %p, align 4

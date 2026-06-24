@@ -19,9 +19,10 @@ define void @store_word(ptr %a, i32 %i, i32 %x) {
   ret void
 }
 
-; A byte index needs no scaling (scale 0).
+; A byte index needs no scaling (scale 0). The signext load uses the signed
+; byte load lbs.
 ; CHECK-LABEL: load_byte:
-; CHECK: lb $r{{[0-9]+}}, [$r{{[0-9]+}} + $r{{[0-9]+}}]
+; CHECK: lbs $r{{[0-9]+}}, [$r{{[0-9]+}} + $r{{[0-9]+}}]
 define signext i8 @load_byte(ptr %a, i32 %i) {
   %p = getelementptr i8, ptr %a, i32 %i
   %v = load i8, ptr %p

@@ -2,7 +2,7 @@
 
 define i32 @zero() {
 ; CHECK-LABEL: zero:
-; CHECK: movi	$r0, 0
+; CHECK: movi55	$r0, 0
 ; CHECK-NEXT: ret
   ret i32 0
 }

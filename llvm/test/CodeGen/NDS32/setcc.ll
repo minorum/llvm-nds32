@@ -7,7 +7,7 @@
 define i32 @setcc_eq(i32 %a, i32 %b) {
 ; CHECK-LABEL: setcc_eq:
 ; CHECK: xor	$r0, $r0, $r1
-; CHECK: movi	$r1, 0
+; CHECK: movi55	$r1, 0
 ; CHECK: slt	$r0, $r1, $r0
 ; CHECK: xori	$r0, $r0, 1
 ; CHECK: ret
@@ -19,7 +19,7 @@ define i32 @setcc_eq(i32 %a, i32 %b) {
 define i32 @setcc_ne(i32 %a, i32 %b) {
 ; CHECK-LABEL: setcc_ne:
 ; CHECK: xor	$r0, $r0, $r1
-; CHECK: movi	$r1, 0
+; CHECK: movi55	$r1, 0
 ; CHECK: slt	$r0, $r1, $r0
 ; CHECK: ret
   %c = icmp ne i32 %a, %b

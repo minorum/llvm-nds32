@@ -14,10 +14,10 @@ loop:
 define i32 @select_eq_zero(i32 %x) {
 ; CHECK-LABEL: select_eq_zero:
 ; CHECK: beqz	$r0, .LBB1_1
-; CHECK: movi	$r0, 0
+; CHECK: movi55	$r0, 0
 ; CHECK: ret
 ; CHECK: .LBB1_1:
-; CHECK: movi	$r0, 1
+; CHECK: movi55	$r0, 1
 ; CHECK: ret
 entry:
   %c = icmp eq i32 %x, 0
@@ -33,10 +33,10 @@ f:
 define i32 @select_eq_pair(i32 %a, i32 %b) {
 ; CHECK-LABEL: select_eq_pair:
 ; CHECK: bne	$r0, $r1, .LBB2_2
-; CHECK: movi	$r0, 1
+; CHECK: movi55	$r0, 1
 ; CHECK: ret
 ; CHECK: .LBB2_2:
-; CHECK: movi	$r0, 0
+; CHECK: movi55	$r0, 0
 ; CHECK: ret
 entry:
   %c = icmp eq i32 %a, %b
