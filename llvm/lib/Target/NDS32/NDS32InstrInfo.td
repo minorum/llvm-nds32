@@ -26,6 +26,33 @@ class ALUrrr<bits<7> op6, bits<10> sub, dag outs, dag ins, string asmstr,
   let Inst{9-0} = sub;
 }
 
+// Two-register ALU format (rb field unused / zero).
+class ALU2r<bits<7> op6, bits<10> sub, dag outs, dag ins, string asmstr,
+            list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<5> ra;
+  let Inst{31-25} = op6;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = ra;
+  let Inst{14-10} = 0;
+  let Inst{9-0} = sub;
+}
+
+// Shift-by-immediate format: 5-bit shift amount in the rb field [14:10].
+class ALUsa<bits<7> op6, bits<10> sub, dag outs, dag ins, string asmstr,
+            list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<5> ra;
+  bits<5> sa;
+  let Inst{31-25} = op6;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = ra;
+  let Inst{14-10} = sa;
+  let Inst{9-0} = sub;
+}
+
 def NDS32retflag : SDNode<"NDS32ISD::RET_FLAG", SDTNone,
                           [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
@@ -119,13 +146,13 @@ def ADDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "addi\t$dst, $lhs, $imm",
                       [(set GPR:$dst, (add GPR:$lhs, simm15:$imm))]>;
 
-def SUBrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "sub\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (sub GPR:$lhs, GPR:$rhs))]>;
+def SUBrr : ALUrrr<0x20, 1, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "sub\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (sub GPR:$ra, GPR:$rb))]>;
 
-def MULrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "mul\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (mul GPR:$lhs, GPR:$rhs))]>;
+def MULrr : ALUrrr<0x21, 0x24, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "mul\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (mul GPR:$ra, GPR:$rb))]>;
 
 def DIVSR : NDS32Inst<(outs GPR:$quo, GPR:$rem), (ins GPR:$lhs, GPR:$rhs),
                       "divsr\t$quo, $rem, $lhs, $rhs",
@@ -137,75 +164,77 @@ def DIVR : NDS32Inst<(outs GPR:$quo, GPR:$rem), (ins GPR:$lhs, GPR:$rhs),
                      [(set GPR:$quo, (udiv GPR:$lhs, GPR:$rhs)),
                       (set GPR:$rem, (urem GPR:$lhs, GPR:$rhs))]>;
 
-def ANDrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "and\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (and GPR:$lhs, GPR:$rhs))]>;
+def ANDrr : ALUrrr<0x20, 2, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "and\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (and GPR:$ra, GPR:$rb))]>;
 
-def ORrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                     "or\t$dst, $lhs, $rhs",
-                     [(set GPR:$dst, (or GPR:$lhs, GPR:$rhs))]>;
+def ORrr : ALUrrr<0x20, 4, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                  "or\t$rt, $ra, $rb",
+                  [(set GPR:$rt, (or GPR:$ra, GPR:$rb))]>;
 
-def XORrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "xor\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (xor GPR:$lhs, GPR:$rhs))]>;
+def XORrr : ALUrrr<0x20, 3, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "xor\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (xor GPR:$ra, GPR:$rb))]>;
 
-def SLLrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "sll\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (shl GPR:$lhs, GPR:$rhs))]>;
+def SLLrr : ALUrrr<0x20, 0xc, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "sll\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (shl GPR:$ra, GPR:$rb))]>;
 
-def SRLrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "srl\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (srl GPR:$lhs, GPR:$rhs))]>;
+def SRLrr : ALUrrr<0x20, 0xd, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "srl\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (srl GPR:$ra, GPR:$rb))]>;
 
-def SRArr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "sra\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (sra GPR:$lhs, GPR:$rhs))]>;
+def SRArr : ALUrrr<0x20, 0xe, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "sra\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (sra GPR:$ra, GPR:$rb))]>;
 
 // Sign/zero-extend byte/halfword (register form).
-def SEB : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
-                    "seb\t$dst, $src",
-                    [(set GPR:$dst, (sext_inreg GPR:$src, i8))]>;
-def SEH : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
-                    "seh\t$dst, $src",
-                    [(set GPR:$dst, (sext_inreg GPR:$src, i16))]>;
-def ZEH : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
-                    "zeh\t$dst, $src",
-                    [(set GPR:$dst, (and GPR:$src, 0xffff))]>;
+def SEB : ALU2r<0x20, 0x10, (outs GPR:$rt), (ins GPR:$ra),
+                "seb\t$rt, $ra",
+                [(set GPR:$rt, (sext_inreg GPR:$ra, i8))]>;
+def SEH : ALU2r<0x20, 0x11, (outs GPR:$rt), (ins GPR:$ra),
+                "seh\t$rt, $ra",
+                [(set GPR:$rt, (sext_inreg GPR:$ra, i16))]>;
+def ZEH : ALU2r<0x20, 0x13, (outs GPR:$rt), (ins GPR:$ra),
+                "zeh\t$rt, $ra",
+                [(set GPR:$rt, (and GPR:$ra, 0xffff))]>;
 
 // Count leading zeros. clz returns 32 for a zero input, matching both
 // ISD::CTLZ and ISD::CTLZ_ZERO_UNDEF.
-def CLZ : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
-                    "clz\t$dst, $src",
-                    [(set GPR:$dst, (ctlz GPR:$src))]>;
+def CLZ : ALU2r<0x21, 7, (outs GPR:$rt), (ins GPR:$ra),
+                "clz\t$rt, $ra",
+                [(set GPR:$rt, (ctlz GPR:$ra))]>;
 def : Pat<(ctlz_zero_undef GPR:$src), (CLZ GPR:$src)>;
 
 // Byte-swap within each halfword (0xAABBCCDD -> 0xBBAADDCC) and rotate-right by
 // immediate. Composed, they form a full 32-bit byte reverse (BSWAP):
 // rotri(wsbh(x), 16) = 0xDDCCBBAA.
-def WSBH : NDS32Inst<(outs GPR:$dst), (ins GPR:$src),
-                     "wsbh\t$dst, $src", []>;
-def ROTRIri : NDS32Inst<(outs GPR:$dst), (ins GPR:$src, i32imm:$sa),
-                        "rotri\t$dst, $src, $sa", []>;
+def WSBH : ALU2r<0x20, 0x14, (outs GPR:$rt), (ins GPR:$ra),
+                 "wsbh\t$rt, $ra", []>;
+def ROTRIri : ALUsa<0x20, 0xb, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                    "rotri\t$rt, $ra, $sa", []>;
 def : Pat<(bswap GPR:$src), (ROTRIri (WSBH GPR:$src), (i32 16))>;
 
 // Conditional moves: each conditionally overwrites $dst and preserves it
 // otherwise, so $dstin is tied to $dst. cmovz writes when $cond == 0, cmovn
 // when $cond != 0. The branchless select expansion emits a cmovn/cmovz pair
 // (see EmitInstrWithCustomInserter); exactly one fires, fully defining $dst.
-let Constraints = "$dstin = $dst" in {
-def CMOVZ : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$src, GPR:$cond),
-                      "cmovz\t$dst, $src, $cond", []>;
-def CMOVN : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$src, GPR:$cond),
-                      "cmovn\t$dst, $src, $cond", []>;
+let Constraints = "$dstin = $rt" in {
+def CMOVZ : ALUrrr<0x20, 0x1a, (outs GPR:$rt), (ins GPR:$dstin, GPR:$ra, GPR:$rb),
+                   "cmovz\t$rt, $ra, $rb", []>;
+def CMOVN : ALUrrr<0x20, 0x1b, (outs GPR:$rt), (ins GPR:$dstin, GPR:$ra, GPR:$rb),
+                   "cmovn\t$rt, $ra, $rb", []>;
 
 // Fused multiply-accumulate / multiply-subtract (low 32 bits): the running
-// accumulator $dstin is tied to $dst.
-def MADDR32 : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$a, GPR:$b),
-                        "maddr32\t$dst, $a, $b",
-                        [(set GPR:$dst, (add GPR:$dstin, (mul GPR:$a, GPR:$b)))]>;
-def MSUBR32 : NDS32Inst<(outs GPR:$dst), (ins GPR:$dstin, GPR:$a, GPR:$b),
-                        "msubr32\t$dst, $a, $b",
-                        [(set GPR:$dst, (sub GPR:$dstin, (mul GPR:$a, GPR:$b)))]>;
+// accumulator $dstin is tied to $rt.
+def MADDR32 : ALUrrr<0x21, 0x73, (outs GPR:$rt),
+                     (ins GPR:$dstin, GPR:$ra, GPR:$rb),
+                     "maddr32\t$rt, $ra, $rb",
+                     [(set GPR:$rt, (add GPR:$dstin, (mul GPR:$ra, GPR:$rb)))]>;
+def MSUBR32 : ALUrrr<0x21, 0x75, (outs GPR:$rt),
+                     (ins GPR:$dstin, GPR:$ra, GPR:$rb),
+                     "msubr32\t$rt, $ra, $rb",
+                     [(set GPR:$rt, (sub GPR:$dstin, (mul GPR:$ra, GPR:$rb)))]>;
 }
 
 def ANDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
@@ -234,25 +263,25 @@ def XORri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "xori\t$dst, $lhs, $imm",
                       [(set GPR:$dst, (xor GPR:$lhs, uimm15:$imm))]>;
 
-def SLLIri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                       "slli\t$dst, $lhs, $imm",
-                       [(set GPR:$dst, (shl GPR:$lhs, imm:$imm))]>;
+def SLLIri : ALUsa<0x20, 8, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                   "slli\t$rt, $ra, $sa",
+                   [(set GPR:$rt, (shl GPR:$ra, imm:$sa))]>;
 
-def SRLIri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                       "srli\t$dst, $lhs, $imm",
-                       [(set GPR:$dst, (srl GPR:$lhs, imm:$imm))]>;
+def SRLIri : ALUsa<0x20, 9, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                   "srli\t$rt, $ra, $sa",
+                   [(set GPR:$rt, (srl GPR:$ra, imm:$sa))]>;
 
-def SRAIri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
-                       "srai\t$dst, $lhs, $imm",
-                       [(set GPR:$dst, (sra GPR:$lhs, imm:$imm))]>;
+def SRAIri : ALUsa<0x20, 0xa, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                   "srai\t$rt, $ra, $sa",
+                   [(set GPR:$rt, (sra GPR:$ra, imm:$sa))]>;
 
-def SLT : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                    "slt\t$dst, $lhs, $rhs",
-                    [(set GPR:$dst, (setcc GPR:$lhs, GPR:$rhs, SETULT))]>;
+def SLT : ALUrrr<0x20, 6, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                 "slt\t$rt, $ra, $rb",
+                 [(set GPR:$rt, (setcc GPR:$ra, GPR:$rb, SETULT))]>;
 
-def SLTS : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                     "slts\t$dst, $lhs, $rhs",
-                     [(set GPR:$dst, (setcc GPR:$lhs, GPR:$rhs, SETLT))]>;
+def SLTS : ALUrrr<0x20, 7, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                  "slts\t$rt, $ra, $rb",
+                  [(set GPR:$rt, (setcc GPR:$ra, GPR:$rb, SETLT))]>;
 
 def SLTI : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                      "slti\t$dst, $lhs, $imm",
