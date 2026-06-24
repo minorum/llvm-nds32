@@ -1,0 +1,10 @@
+# RUN: llvm-mc -triple=nds32be-unknown-none-elf -disassemble %s | FileCheck %s
+
+# CHECK: add $r1, $r0, $r2
+0x40 0x10 0x08 0x00
+# CHECK: lwi $r0, [$r1 + 0]
+0x04 0x00 0x80 0x00
+# CHECK: movi55 $r0, 7
+0x84 0x07
+# CHECK: lw $r0, [$r0 + $r1 << 2]
+0x38 0x00 0x06 0x02

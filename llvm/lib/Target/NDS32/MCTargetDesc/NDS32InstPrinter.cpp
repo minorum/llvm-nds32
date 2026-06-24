@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "NDS32InstPrinter.h"
+#include "NDS32MCTargetDesc.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"

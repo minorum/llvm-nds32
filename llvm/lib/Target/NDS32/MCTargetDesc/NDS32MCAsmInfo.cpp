@@ -21,11 +21,6 @@ NDS32MCAsmInfo::NDS32MCAsmInfo(const Triple &TT) {
   AlignmentIsInBytes = false;
   UsesELFSectionDirectiveForBSS = true;
   SupportsDebugInformation = true;
-  // No AsmParser yet (the disassembler/AsmParser are the last roadmap round).
-  // Without the integrated assembler, textual inline-asm is emitted as raw text
-  // in .s output instead of being parsed+encoded, which would otherwise abort.
-  // Direct object emission of inline asm still requires the AsmParser.
-  setUseIntegratedAssembler(false);
 }
 
 void NDS32MCAsmInfo::printSpecifierExpr(raw_ostream &OS,

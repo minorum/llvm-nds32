@@ -117,6 +117,20 @@ class Br15<bits<1> ne, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{13-0} = target;
 }
 
+// AsmParser operand classes for the bracketed memory syntax. The parser emits
+// the '[' and ']' as literal tokens and the inner "$base + off" / "$base +
+// $index << sv" as one Mem / MemRR operand.
+def MemAsmOperand : AsmOperandClass {
+  let Name = "Mem";
+  let RenderMethod = "addMemOperands";
+  let PredicateMethod = "isMem";
+}
+def MemRRAsmOperand : AsmOperandClass {
+  let Name = "MemRR";
+  let RenderMethod = "addMemRROperands";
+  let PredicateMethod = "isMemRR";
+}
+
 // I-type 15-bit immediate (carries lo12 symbol fixups via encodeImm15).
 def imm15op : Operand<i32> { let EncoderMethod = "encodeImm15"; }
 // 20-bit immediate (movi / sethi hi20 fixups).
@@ -129,6 +143,7 @@ def memri : Operand<i32> {
   let MIOperandInfo = (ops GPR, i32imm);
   let EncoderMethod = "encodeMemWords";
   let DecoderMethod = "decodeMemWords";
+  let ParserMatchClass = MemAsmOperand;
 }
 
 def memri8 : Operand<i32> {
@@ -136,6 +151,7 @@ def memri8 : Operand<i32> {
   let MIOperandInfo = (ops GPR, i32imm);
   let EncoderMethod = "encodeMemBytes";
   let DecoderMethod = "decodeMemBytes";
+  let ParserMatchClass = MemAsmOperand;
 }
 
 def memri16 : Operand<i32> {
@@ -143,6 +159,7 @@ def memri16 : Operand<i32> {
   let MIOperandInfo = (ops GPR, i32imm);
   let EncoderMethod = "encodeMemHalfwords";
   let DecoderMethod = "decodeMemHalfwords";
+  let ParserMatchClass = MemAsmOperand;
 }
 
 // I-type immediate ALU format.
@@ -224,6 +241,7 @@ def memrr : Operand<i32> {
   let MIOperandInfo = (ops GPR, GPR, i32imm);
   let EncoderMethod = "encodeRegOffset";
   let DecoderMethod = "decodeRegOffset";
+  let ParserMatchClass = MemRRAsmOperand;
 }
 def regoaddr : ComplexPattern<iPTR, 3, "selectRegOffsetAddr", []>;
 
@@ -693,6 +711,9 @@ def : Pat<(NDS32wrapper tjumptable:$imm), (SETHI tjumptable:$imm)>;
 def : Pat<(NDS32wrapper tglobaltlsaddr:$imm), (SETHI tglobaltlsaddr:$imm)>;
 def : Pat<(or GPR:$lhs, (NDS32wrapper tglobaltlsaddr:$imm)),
           (ORri GPR:$lhs, tglobaltlsaddr:$imm)>;
+
+// "mov rt, ra" is the customary NDS32 assembler alias for "ori rt, ra, 0".
+def : InstAlias<"mov $rt, $ra", (ORri GPR:$rt, GPR:$ra, 0)>;
 
 // ADDri patterns for global-address lower-half (address computation).
 def : Pat<(add GPR:$lhs, (NDS32wrapper tglobaladdr:$imm)),
