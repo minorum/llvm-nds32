@@ -32,6 +32,16 @@ public:
   DecodeStatus getInstruction(MCInst &MI, uint64_t &Size,
                               ArrayRef<uint8_t> Bytes, uint64_t Address,
                               raw_ostream &CStream) const override;
+
+  // On a decode failure, advance by one halfword rather than the default one
+  // byte: NDS32 is halfword-aligned, so skipping a single byte would misalign
+  // (and corrupt the decode of) every following instruction. Skipping 2 keeps
+  // the stream aligned so decodable instructions after an unknown one still
+  // disassemble correctly.
+  uint64_t suggestBytesToSkip(ArrayRef<uint8_t> Bytes,
+                              uint64_t Address) const override {
+    return 2;
+  }
 };
 } // namespace
 
@@ -70,11 +80,25 @@ static DecodeStatus DecodeFPR32RegisterClass(MCInst &Inst, unsigned RegNo,
   return MCDisassembler::Success;
 }
 
+// Add a PC-relative branch/call target. If a symbolizer is installed (as
+// llvm-objdump does), resolve the absolute target to a symbol; otherwise leave
+// the relative byte displacement (which the registered MCInstrAnalysis turns
+// back into an absolute target for annotation).
+static DecodeStatus addBranchTarget(MCInst &Inst, uint64_t Address,
+                                    int64_t Offset, unsigned InstSize,
+                                    const MCDisassembler *Decoder) {
+  if (!Decoder->tryAddingSymbolicOperand(Inst, Address + Offset, Address,
+                                         /*IsBranch=*/true, /*Offset=*/0,
+                                         /*OpSize=*/0, InstSize))
+    Inst.addOperand(MCOperand::createImm(Offset));
+  return MCDisassembler::Success;
+}
+
 // 16-bit short-branch target: 8-bit signed displacement, scaled by 2.
 static DecodeStatus decodeBr9(MCInst &Inst, unsigned Imm, uint64_t Address,
                               const MCDisassembler *Decoder) {
-  Inst.addOperand(MCOperand::createImm(SignExtend32<8>(Imm) * 2));
-  return MCDisassembler::Success;
+  return addBranchTarget(Inst, Address, SignExtend64<8>(Imm) * 2,
+                         /*InstSize=*/2, Decoder);
 }
 
 // 16-bit add45/addi45 4-bit register field: codes 0-11 -> r0-r11,
@@ -89,14 +113,154 @@ static DecodeStatus decodeGPR4(MCInst &Inst, unsigned Code, uint64_t Address,
 }
 
 // Compound memory operand [19:0] = base[19:15] + scaled offset[14:0]. The
-// offset is rescaled to bytes for printing/round-tripping.
+// 15-bit offset is signed (lwi/swi accept negative displacements); it is
+// sign-extended and rescaled to bytes for printing/round-tripping.
 template <unsigned Scale>
 static DecodeStatus decodeMem(MCInst &Inst, unsigned Imm, uint64_t Address,
                               const MCDisassembler *Decoder) {
   unsigned Base = (Imm >> 15) & 0x1f;
-  unsigned Off = Imm & 0x7fff;
+  int32_t Off = SignExtend32<15>(Imm & 0x7fff);
   Inst.addOperand(MCOperand::createReg(GPRTable[Base]));
   Inst.addOperand(MCOperand::createImm(Off << Scale));
+  return MCDisassembler::Success;
+}
+
+// Signed I-type immediates. The generated decoder hands us the raw field
+// already masked to its declared width, so we only sign-extend.
+static DecodeStatus decodeSImm15(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<15>(Imm)));
+  return MCDisassembler::Success;
+}
+static DecodeStatus decodeSImm20(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<20>(Imm)));
+  return MCDisassembler::Success;
+}
+// 16-bit movi55: 5-bit signed immediate.
+static DecodeStatus decodeSImm5(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<5>(Imm)));
+  return MCDisassembler::Success;
+}
+
+// PC-relative branch/jump targets. The displacement is encoded in halfword
+// units (scaled by 2) and is signed.
+template <unsigned Bits>
+static DecodeStatus decodeBranch(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  return addBranchTarget(Inst, Address, SignExtend64<Bits>(Imm) * 2,
+                         /*InstSize=*/4, Decoder);
+}
+static DecodeStatus decodeBr25(MCInst &Inst, unsigned Imm, uint64_t A,
+                               const MCDisassembler *D) {
+  return decodeBranch<24>(Inst, Imm, A, D);
+}
+static DecodeStatus decodeBr17(MCInst &Inst, unsigned Imm, uint64_t A,
+                               const MCDisassembler *D) {
+  return decodeBranch<16>(Inst, Imm, A, D);
+}
+static DecodeStatus decodeBr15(MCInst &Inst, unsigned Imm, uint64_t A,
+                               const MCDisassembler *D) {
+  return decodeBranch<14>(Inst, Imm, A, D);
+}
+
+// 16-bit lwi333/swi333: 3-bit offset in word units, rescaled to bytes.
+static DecodeStatus decodeOff3Words(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                    const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm((Imm & 0x7) << 2));
+  return MCDisassembler::Success;
+}
+// 16-bit lhi333/shi333: 3-bit offset in halfword units.
+static DecodeStatus decodeOff3Half(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                   const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm((Imm & 0x7) << 1));
+  return MCDisassembler::Success;
+}
+// 16-bit lbi333/sbi333: 3-bit byte offset (unscaled).
+static DecodeStatus decodeOff3Byte(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                   const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(Imm & 0x7));
+  return MCDisassembler::Success;
+}
+
+// Post-increment immediate: a signed 15-bit value in element units, rescaled to
+// bytes (mirrors encodePostInc<Shift>).
+template <unsigned Shift>
+static DecodeStatus decodePostInc(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                  const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<15>(Imm) << Shift));
+  return MCDisassembler::Success;
+}
+static DecodeStatus decodePostByte(MCInst &Inst, unsigned Imm, uint64_t A,
+                                   const MCDisassembler *D) {
+  return decodePostInc<0>(Inst, Imm, A, D);
+}
+static DecodeStatus decodePostHalf(MCInst &Inst, unsigned Imm, uint64_t A,
+                                   const MCDisassembler *D) {
+  return decodePostInc<1>(Inst, Imm, A, D);
+}
+static DecodeStatus decodePostWord(MCInst &Inst, unsigned Imm, uint64_t A,
+                                   const MCDisassembler *D) {
+  return decodePostInc<2>(Inst, Imm, A, D);
+}
+
+// 16-bit SP/base-relative word offsets (unsigned, rescaled to bytes).
+template <unsigned Width>
+static DecodeStatus decodeOffWords(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                   const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm((Imm & ((1u << Width) - 1)) << 2));
+  return MCDisassembler::Success;
+}
+static DecodeStatus decodeOff7Words(MCInst &Inst, unsigned Imm, uint64_t A,
+                                    const MCDisassembler *D) {
+  return decodeOffWords<7>(Inst, Imm, A, D);
+}
+static DecodeStatus decodeOff6Words(MCInst &Inst, unsigned Imm, uint64_t A,
+                                    const MCDisassembler *D) {
+  return decodeOffWords<6>(Inst, Imm, A, D);
+}
+
+// 16-bit addi10.sp: signed 10-bit byte immediate.
+static DecodeStatus decodeSImm10(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<10>(Imm)));
+  return MCDisassembler::Success;
+}
+
+// 16-bit movpi45: loads a 5-bit immediate biased by +16 (range 16..47).
+static DecodeStatus decodeMovpi(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm((Imm & 0x1f) + 16));
+  return MCDisassembler::Success;
+}
+
+// 16-bit movd44: a 4-bit field selects an even register pair (code*2).
+static DecodeStatus decodeEvenGPR(MCInst &Inst, unsigned Code, uint64_t Address,
+                                  const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createReg(GPRTable[(Code & 0xf) << 1]));
+  return MCDisassembler::Success;
+}
+
+// beqc/bnec: signed 11-bit compare immediate.
+static DecodeStatus decodeSImm11(MCInst &Inst, unsigned Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<11>(Imm)));
+  return MCDisassembler::Success;
+}
+
+// gp-relative word load/store: signed 17-bit offset, rescaled to bytes.
+static DecodeStatus decodeOff17Words(MCInst &Inst, unsigned Imm,
+                                     uint64_t Address,
+                                     const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<17>(Imm) << 2));
+  return MCDisassembler::Success;
+}
+// gp-relative byte load: signed 17-bit byte offset (unscaled).
+static DecodeStatus decodeOff17Byte(MCInst &Inst, unsigned Imm,
+                                    uint64_t Address,
+                                    const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<17>(Imm)));
   return MCDisassembler::Success;
 }
 
@@ -137,17 +301,23 @@ DecodeStatus NDS32Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
                                                ArrayRef<uint8_t> Bytes,
                                                uint64_t Address,
                                                raw_ostream &CStream) const {
-  // 16-bit forms have the top bit of the first (big-endian) halfword set;
-  // 32-bit forms have bit 31 clear.
-  if (Bytes.size() >= 2 && (Bytes[0] & 0x80)) {
-    uint32_t Insn = (Bytes[0] << 8) | Bytes[1];
-    if (decodeInstruction(DecoderTable16, MI, Insn, Address, this, STI) ==
-        MCDisassembler::Success) {
-      Size = 2;
-      return MCDisassembler::Success;
+  // NDS32 instructions are encoded big-endian regardless of the data
+  // endianness selected by the triple (verified against the Andes toolchain:
+  // `gcc -EB` and `gcc -EL` emit byte-identical .text; only .data is swapped).
+  // So instruction parcels are always read big-endian. The instruction-length
+  // bit is bit 15 of the first halfword: set selects a 16-bit form, clear a
+  // 32-bit form.
+  if (Bytes.size() >= 2) {
+    uint16_t HW = support::endian::read16be(Bytes.data());
+    if (HW & 0x8000) {
+      if (decodeInstruction(DecoderTable16, MI, HW, Address, this, STI) ==
+          MCDisassembler::Success) {
+        Size = 2;
+        return MCDisassembler::Success;
+      }
+      Size = 0;
+      return MCDisassembler::Fail;
     }
-    Size = 0;
-    return MCDisassembler::Fail;
   }
   if (Bytes.size() < 4) {
     Size = 0;

@@ -35,7 +35,7 @@ define i64 @retll() {
 ; First six i32 args in registers, seventh on the stack.
 define i32 @seven(i32 %a, i32 %b, i32 %c, i32 %d, i32 %e, i32 %f, i32 %g) {
 ; CHECK-LABEL: seven:
-; CHECK: lwi	$r{{[0-9]+}}, [$r31 + 0]
+; CHECK: lwi	$r{{[0-9]+}}, [$sp + 0]
 ; CHECK: ret
   ret i32 %g
 }

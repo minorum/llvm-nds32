@@ -20,10 +20,10 @@ entry:
 
 define i32 @stack_slot_volatile(i32 %x) {
 ; CHECK-LABEL: stack_slot_volatile:
-; CHECK: addi	$r31, $r31, -4
-; CHECK: swi	$r0, [$r31 + 0]
-; CHECK: lwi	$r0, [$r31 + 0]
-; CHECK: addi	$r31, $r31, 4
+; CHECK: addi	$sp, $sp, -4
+; CHECK: swi	$r0, [$sp + 0]
+; CHECK: lwi	$r0, [$sp + 0]
+; CHECK: addi	$sp, $sp, 4
 ; CHECK: ret
 entry:
   %slot = alloca i32, align 4

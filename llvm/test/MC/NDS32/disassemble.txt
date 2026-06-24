@@ -12,7 +12,7 @@
 # r16-r19), so these must decode back to the high registers.
 # CHECK: add45 $r0, $r1
 0x88 0x01
-# CHECK: add45 $r16, $r31
+# CHECK: add45 $r16, $sp
 0x89 0x9f
 # CHECK: addi45 $r19, 1
 0x8d 0xe1

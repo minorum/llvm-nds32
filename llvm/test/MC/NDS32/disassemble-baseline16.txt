@@ -1,0 +1,50 @@
+# RUN: llvm-mc -triple=nds32be-unknown-none-elf -disassemble %s | FileCheck %s
+
+# Coverage for the Baseline16 (16-bit) and a few 32-bit forms added for
+# reverse-engineering GCC-built firmware. Encodings verified byte-for-byte
+# against the Andes nds32be-elf-objdump (scripts/diff-disasm.sh).
+
+# CHECK: lwi37.sp $r0, [+ 8]
+0xf0 0x02
+# CHECK: swi37.sp $r2, [+ 280]
+0xf2 0xc6
+# CHECK: movd44 $r2, $r16
+0xfd 0x18
+# CHECK: sub45 $r2, $r5
+0x8a 0x45
+# CHECK: subi45 $r1, 5
+0x8e 0x25
+# CHECK: srli45 $r5, 9
+0x92 0xa9
+# CHECK: srai45 $r0, 31
+0x90 0x1f
+# CHECK: slli333 $r2, $r5, 3
+0x94 0xab
+# CHECK: movpi45 $r1, 22
+0xfa 0x26
+# CHECK: addi10.sp -332
+0xee 0xb4
+# CHECK: addri36.sp $r3, 8
+0xb0 0xc2
+# CHECK: lwi450 $r0, [$r14]
+0xb4 0x0e
+# CHECK: swi450 $r0, [$r14]
+0xb6 0x0e
+# CHECK: subi333 $r1, $r0, 1
+0x9e 0x41
+# CHECK: or33 $r1, $r0
+0xfe 0x47
+# CHECK: and33 $r0, $r1
+0xfe 0x0e
+# CHECK: xor33 $r2, $r1
+0xfe 0x8d
+# CHECK: zeh33 $r1, $r5
+0x96 0x69
+# CHECK: lwi333.bi $r2, [$r3], 4
+0xa2 0x99
+# CHECK: nop16
+0x92 0x00
+# CHECK: ret5 $lp
+0xdd 0x9e
+# CHECK: subri $r3, $r2, 32
+0x52 0x31 0x00 0x20

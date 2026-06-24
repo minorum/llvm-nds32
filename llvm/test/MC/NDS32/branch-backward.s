@@ -14,6 +14,6 @@ target:
 	nop
 	b target
 
-# The branch is 8 bytes back; it must stay `b` (0x48..), not become `jal`.
-# CHECK:      8: 48 {{[0-9a-f]+}} {{[0-9a-f]+}} {{[0-9a-f]+}} {{.*}}b
+# The branch is 8 bytes back; it must stay `j` (0x48..), not become `jal`.
+# CHECK:      8: 48 {{[0-9a-f]+}} {{[0-9a-f]+}} {{[0-9a-f]+}} {{.*}}j
 # CHECK-NOT:  jal

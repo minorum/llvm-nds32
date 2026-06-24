@@ -135,10 +135,12 @@ void NDS32AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
       // 16-bit beqz38/bnez38/j8: 8-bit signed displacement field (bits [7:0]),
       // scaled by 2. Relaxation guarantees the value is in range here. The host
       // instruction is only 2 bytes, so apply a 16-bit (not 32-bit) write.
-      uint16_t Cur16 = support::endian::read16(Data, Endian);
+      // Instruction bytes are always big-endian (see writeNopData / the code
+      // emitter), independent of the triple's data endianness.
+      uint16_t Cur16 = support::endian::read16(Data, llvm::endianness::big);
       Cur16 = (Cur16 & 0xff00) |
               (static_cast<uint16_t>(Value / 2) & 0x00ff);
-      support::endian::write16(Data, Cur16, Endian);
+      support::endian::write16(Data, Cur16, llvm::endianness::big);
       return;
     }
     // PIC fixups are always resolved by the linker (Value == 0 here), but mask
@@ -161,11 +163,16 @@ void NDS32AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
   }
   // Generic fixups (e.g. FK_Data_4) write the full value with the default mask.
 
+  // Target-specific fixups patch instruction bytes, which are always
+  // big-endian; generic data fixups (FK_Data_*) follow the triple's data
+  // endianness.
+  const llvm::endianness RW =
+      Kind >= FirstTargetFixupKind ? llvm::endianness::big : Endian;
   // In LLVM 22, Data already points at the first byte of the fixup offset.
-  uint32_t Cur = support::endian::read32(Data, Endian);
+  uint32_t Cur = support::endian::read32(Data, RW);
   Cur &= ~Mask;
   Cur |= static_cast<uint32_t>(Value) & Mask;
-  support::endian::write32(Data, Cur, Endian);
+  support::endian::write32(Data, Cur, RW);
 }
 
 bool NDS32AsmBackend::mayNeedRelaxation(unsigned Opcode,
@@ -215,10 +222,11 @@ bool NDS32AsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
   if (Count % 2 != 0)
     return false;
 
+  // nops are instructions: always big-endian, independent of data endianness.
   for (uint64_t I = 0, E = Count / 4; I < E; ++I)
-    support::endian::write<uint32_t>(OS, 0x40000009, Endian);
+    support::endian::write<uint32_t>(OS, 0x40000009, llvm::endianness::big);
   if (Count % 4 != 0)
-    support::endian::write<uint16_t>(OS, 0x9200, Endian);
+    support::endian::write<uint16_t>(OS, 0x9200, llvm::endianness::big);
 
   return true;
 }

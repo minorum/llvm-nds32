@@ -22,8 +22,23 @@ using namespace llvm;
 #define PRINT_ALIAS_INSTR
 #include "NDS32GenAsmWriter.inc"
 
+// r28-r31 print with their ABI names to match the Andes toolchain; the numeric
+// name remains the register's primary AsmName (so parsing/codegen are stable).
+static const char *abiRegName(MCRegister Reg) {
+  switch (Reg.id()) {
+  case NDS32::R28: return "$fp";
+  case NDS32::R29: return "$gp";
+  case NDS32::R30: return "$lp";
+  case NDS32::R31: return "$sp";
+  default: return nullptr;
+  }
+}
+
 void NDS32InstPrinter::printRegName(raw_ostream &OS, MCRegister Reg) {
-  OS << getRegisterName(Reg);
+  if (const char *N = abiRegName(Reg))
+    OS << N;
+  else
+    OS << getRegisterName(Reg);
 }
 
 void NDS32InstPrinter::printInst(const MCInst *MI, uint64_t Address,
@@ -42,7 +57,7 @@ void NDS32InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
-    OS << getRegisterName(Op.getReg());
+    printRegName(OS, Op.getReg());
     return;
   }
   if (Op.isImm()) {

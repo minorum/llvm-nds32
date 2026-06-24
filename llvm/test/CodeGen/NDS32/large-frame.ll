@@ -6,10 +6,10 @@
 
 ; CHECK-LABEL: bigframe:
 ; CHECK: movi $r15, -80000
-; CHECK: add $r31, $r31, $r15
+; CHECK: add $sp, $sp, $r15
 ; ... epilogue restores by the same amount ...
 ; CHECK: movi $r15, 80000
-; CHECK: add $r31, $r31, $r15
+; CHECK: add $sp, $sp, $r15
 ; CHECK: ret
 define i32 @bigframe() {
   %a = alloca [20000 x i32]
@@ -21,8 +21,8 @@ define i32 @bigframe() {
 
 ; A small frame still uses a single addi.
 ; CHECK-LABEL: smallframe:
-; CHECK: addi $r31, $r31, -16
-; CHECK: addi $r31, $r31, 16
+; CHECK: addi $sp, $sp, -16
+; CHECK: addi $sp, $sp, 16
 define i32 @smallframe() {
   %a = alloca [4 x i32]
   %p = getelementptr [4 x i32], ptr %a, i32 0, i32 0

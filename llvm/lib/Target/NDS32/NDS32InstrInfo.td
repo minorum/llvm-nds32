@@ -79,9 +79,18 @@ def SDT_NDS32SelectCC : SDTypeProfile<1, 3, [SDTCisVT<1, i32>, SDTCisSameAs<0, 2
 def NDS32selectcc     : SDNode<"NDS32ISD::SELECT_CC", SDT_NDS32SelectCC>;
 
 def brtarget : Operand<OtherVT>;
-def brtarget25 : Operand<OtherVT> { let EncoderMethod = "encodeBr25"; }
-def brtarget17 : Operand<OtherVT> { let EncoderMethod = "encodeBr17"; }
-def brtarget15 : Operand<OtherVT> { let EncoderMethod = "encodeBr15"; }
+def brtarget25 : Operand<OtherVT> {
+  let EncoderMethod = "encodeBr25";
+  let DecoderMethod = "decodeBr25";
+}
+def brtarget17 : Operand<OtherVT> {
+  let EncoderMethod = "encodeBr17";
+  let DecoderMethod = "decodeBr17";
+}
+def brtarget15 : Operand<OtherVT> {
+  let EncoderMethod = "encodeBr15";
+  let DecoderMethod = "decodeBr15";
+}
 
 // j/jal: 8-bit opcode in Inst[31:24], 24-bit (halfword) target in [23:0].
 class JF<bits<8> op8, dag outs, dag ins, string asmstr, list<dag> pattern>
@@ -131,10 +140,20 @@ def MemRRAsmOperand : AsmOperandClass {
   let PredicateMethod = "isMemRR";
 }
 
-// I-type 15-bit immediate (carries lo12 symbol fixups via encodeImm15).
+// I-type 15-bit immediate (carries lo12 symbol fixups via encodeImm15). The
+// plain form is zero-extended (andi/ori/xori/bitci); the signed form
+// (addi/slti/sltsi) sign-extends on disassembly.
 def imm15op : Operand<i32> { let EncoderMethod = "encodeImm15"; }
-// 20-bit immediate (movi / sethi hi20 fixups).
-def imm20op : Operand<i32> { let EncoderMethod = "encodeImm20"; }
+def simm15op : Operand<i32> {
+  let EncoderMethod = "encodeImm15";
+  let DecoderMethod = "decodeSImm15";
+}
+// 20-bit immediate (movi / sethi hi20 fixups). movi sign-extends; sethi uses a
+// separate unsigned sethi_imm operand.
+def imm20op : Operand<i32> {
+  let EncoderMethod = "encodeImm20";
+  let DecoderMethod = "decodeSImm20";
+}
 
 // Memory operand: base register + constant word-aligned byte offset. The
 // EncoderMethod packs base[19:15] and the scaled offset[14:0] into Inst[19:0].
@@ -246,11 +265,41 @@ def memrr : Operand<i32> {
 def regoaddr : ComplexPattern<iPTR, 3, "selectRegOffsetAddr", []>;
 
 // Post-increment byte increment, scaled to element units by the EncoderMethod.
-def postimm_b : Operand<i32> { let EncoderMethod = "encodePostByte"; }
-def postimm_h : Operand<i32> { let EncoderMethod = "encodePostHalf"; }
-def postimm_w : Operand<i32> { let EncoderMethod = "encodePostWord"; }
+def postimm_b : Operand<i32> {
+  let EncoderMethod = "encodePostByte";
+  let DecoderMethod = "decodePostByte";
+}
+def postimm_h : Operand<i32> {
+  let EncoderMethod = "encodePostHalf";
+  let DecoderMethod = "decodePostHalf";
+}
+def postimm_w : Operand<i32> {
+  let EncoderMethod = "encodePostWord";
+  let DecoderMethod = "decodePostWord";
+}
 // 16-bit lwi333/swi333 word offset.
-def off3words : Operand<i32> { let EncoderMethod = "encodeOff3Words"; }
+def off3words : Operand<i32> {
+  let EncoderMethod = "encodeOff3Words";
+  let DecoderMethod = "decodeOff3Words";
+}
+def off3half : Operand<i32> { let DecoderMethod = "decodeOff3Half"; } // lhi333/shi333
+def off3byte : Operand<i32> { let DecoderMethod = "decodeOff3Byte"; } // lbi333/sbi333
+
+// 16-bit movi55: 5-bit signed immediate.
+def simm5op : Operand<i32> { let DecoderMethod = "decodeSImm5"; }
+
+// Additional 16-bit (Baseline16) operand forms used only for disassembly.
+def off7w   : Operand<i32> { let DecoderMethod = "decodeOff7Words"; } // lwi37.sp/swi37.sp
+def off6w   : Operand<i32> { let DecoderMethod = "decodeOff6Words"; } // addri36.sp
+def simm10op : Operand<i32> { let DecoderMethod = "decodeSImm10"; }   // addi10.sp
+def movpiimm : Operand<i32> { let DecoderMethod = "decodeMovpi"; }    // movpi45 (+16 bias)
+def gpreven : RegisterOperand<GPR> { let DecoderMethod = "decodeEvenGPR"; } // movd44
+def simm11op : Operand<i32> { let DecoderMethod = "decodeSImm11"; }   // beqc/bnec
+def off17w   : Operand<i32> { let DecoderMethod = "decodeOff17Words"; } // lwi.gp/swi.gp
+def off17b   : Operand<i32> { let DecoderMethod = "decodeOff17Byte"; }  // lbsi.gp
+// 8-bit PC-relative target (x2) for the 32-bit beqc/bnec (same decode as the
+// 16-bit short-branch displacement).
+def brtarget8 : Operand<OtherVT> { let DecoderMethod = "decodeBr9"; }
 
 // Register-offset load/store: op6=0x1c, rt, packed base/index/scale in [19:8],
 // 8-bit sub-opcode in [7:0].
@@ -314,7 +363,7 @@ def ADDrr : ALUrrr<0x20, 0, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                    "add\t$rt, $ra, $rb",
                    [(set GPR:$rt, (add GPR:$ra, GPR:$rb))]>;
 
-def ADDri : ALUi15<0x28, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+def ADDri : ALUi15<0x28, (outs GPR:$rt), (ins GPR:$ra, simm15op:$imm),
                    "addi\t$rt, $ra, $imm",
                    [(set GPR:$rt, (add GPR:$ra, simm15:$imm))]>;
 
@@ -455,11 +504,11 @@ def SLTS : ALUrrr<0x20, 7, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                   "slts\t$rt, $ra, $rb",
                   [(set GPR:$rt, (setcc GPR:$ra, GPR:$rb, SETLT))]>;
 
-def SLTI : ALUi15<0x2e, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+def SLTI : ALUi15<0x2e, (outs GPR:$rt), (ins GPR:$ra, simm15op:$imm),
                   "slti\t$rt, $ra, $imm",
                   [(set GPR:$rt, (setcc GPR:$ra, simm15:$imm, SETULT))]>;
 
-def SLTSI : ALUi15<0x2f, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
+def SLTSI : ALUi15<0x2f, (outs GPR:$rt), (ins GPR:$ra, simm15op:$imm),
                    "sltsi\t$rt, $ra, $imm",
                    [(set GPR:$rt, (setcc GPR:$ra, simm15:$imm, SETLT))]>;
 
@@ -560,9 +609,14 @@ def RET : NDS32Inst<(outs), (ins), "ret", [(NDS32retflag)]> {
   let Inst = 0x4a007820;
 }
 
+// The Andes toolchain (and the AndeStar ISA) name this unconditional jump "j";
+// match it so disassembly is faithful for reverse-engineering. "b" stays
+// accepted as an input alias for backward compatibility.
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in
-def BR : JF<0x48, (outs), (ins brtarget25:$target), "b\t$target",
+def BR : JF<0x48, (outs), (ins brtarget25:$target), "j\t$target",
             [(br bb:$target)]>;
+// Emit=0: "b" is accepted on input only; disassembly prints the canonical "j".
+def : InstAlias<"b\t$target", (BR brtarget25:$target), 0>;
 
 // Indirect jump (jr $rs): used for jump-table dispatch (brind). op6=0x25,
 // $rs in [14:10].
@@ -573,7 +627,10 @@ def JR : NDS32Inst<(outs), (ins GPR:$rs), "jr\t$rs", [(brind GPR:$rs)]> {
   let Inst{14-10} = rs;
 }
 
-def call_target : Operand<i32> { let EncoderMethod = "encodeBr25"; }
+def call_target : Operand<i32> {
+  let EncoderMethod = "encodeBr25";
+  let DecoderMethod = "decodeBr25";
+}
 
 let isCall = 1, Defs = [R30] in {
   def JAL : JF<0x49, (outs), (ins call_target:$target), "jal\t$target", []>;
@@ -605,7 +662,7 @@ def MOV55   : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra), "mov55\t$rt, $ra"> {
   bits<5> rt; bits<5> ra;
   let Inst{15-10} = 0x20; let Inst{9-5} = rt; let Inst{4-0} = ra;
 }
-def MOVI55  : NDS32Inst16<(outs GPR:$rt), (ins i32imm:$imm),
+def MOVI55  : NDS32Inst16<(outs GPR:$rt), (ins simm5op:$imm),
                           "movi55\t$rt, $imm"> {
   bits<5> rt; bits<5> imm;
   let Inst{15-10} = 0x21; let Inst{9-5} = rt; let Inst{4-0} = imm;
@@ -641,6 +698,301 @@ def SWI333 : NDS32Inst16<(outs), (ins GPR:$rt, GPR:$ra, off3words:$imm),
   bits<3> rt; bits<3> ra; bits<3> imm;
   let mayStore = 1;
   let Inst{15-9} = 0x54; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+
+// --- Additional Baseline16 instructions: disassembly coverage only (no codegen
+// pattern). Encodings verified against the Andes nds32be-elf-objdump via
+// scripts/diff-disasm.sh. These are the highest-frequency 16-bit forms emitted
+// by GCC that the codegen subset did not model; less common forms (reg-list
+// lmw/smw, beqc/bnec, gp-relative, the 33 ALU group) are left to graceful
+// degradation (suggestBytesToSkip).
+def NOP16 : NDS32Inst16<(outs), (ins), "nop16"> { let Inst{15-0} = 0x9200; }
+
+let isReturn = 1, isTerminator = 1, isBarrier = 1 in
+def RET5 : NDS32Inst16<(outs), (ins GPR:$rb), "ret5\t$rb"> {
+  bits<5> rb;
+  let Inst{15-5} = 0x6ec; let Inst{4-0} = rb;
+}
+
+// In-place (read-modify-write) 16-bit ALU forms ($rt is tied).
+let Constraints = "$src = $rt" in {
+def SUB45 : NDS32Inst16<(outs gpr4:$rt), (ins gpr4:$src, GPR:$rb),
+                        "sub45\t$rt, $rb"> {
+  bits<4> rt; bits<5> rb;
+  let Inst{15-9} = 0x45; let Inst{8-5} = rt; let Inst{4-0} = rb;
+}
+def SUBI45 : NDS32Inst16<(outs gpr4:$rt), (ins gpr4:$src, i32imm:$imm),
+                         "subi45\t$rt, $imm"> {
+  bits<4> rt; bits<5> imm;
+  let Inst{15-9} = 0x47; let Inst{8-5} = rt; let Inst{4-0} = imm;
+}
+def SRLI45 : NDS32Inst16<(outs gpr4:$rt), (ins gpr4:$src, i32imm:$sa),
+                         "srli45\t$rt, $sa"> {
+  bits<4> rt; bits<5> sa;
+  let Inst{15-9} = 0x49; let Inst{8-5} = rt; let Inst{4-0} = sa;
+}
+}
+
+def SLLI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                          "slli333\t$rt, $ra, $sa"> {
+  bits<3> rt; bits<3> ra; bits<3> sa;
+  let Inst{15-9} = 0x4a; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = sa;
+}
+
+def MOVPI45 : NDS32Inst16<(outs gpr4:$rt), (ins movpiimm:$imm),
+                          "movpi45\t$rt, $imm"> {
+  bits<4> rt; bits<5> imm;
+  let Inst{15-9} = 0x7d; let Inst{8-5} = rt; let Inst{4-0} = imm;
+}
+
+def MOVD44 : NDS32Inst16<(outs gpreven:$rt), (ins gpreven:$rs),
+                         "movd44\t$rt, $rs"> {
+  bits<4> rt; bits<4> rs;
+  let Inst{15-8} = 0xfd; let Inst{7-4} = rt; let Inst{3-0} = rs;
+}
+
+// SP-relative word load/store: 3-bit reg, 7-bit word offset (bit7 = store).
+def LWI37SP : NDS32Inst16<(outs GPR:$rt), (ins off7w:$off),
+                          "lwi37.sp\t$rt, [+ $off]"> {
+  bits<3> rt; bits<7> off;
+  let mayLoad = 1;
+  let Inst{15-11} = 0x1e; let Inst{10-8} = rt; let Inst{7} = 0; let Inst{6-0} = off;
+}
+def SWI37SP : NDS32Inst16<(outs), (ins GPR:$rt, off7w:$off),
+                          "swi37.sp\t$rt, [+ $off]"> {
+  bits<3> rt; bits<7> off;
+  let mayStore = 1;
+  let Inst{15-11} = 0x1e; let Inst{10-8} = rt; let Inst{7} = 1; let Inst{6-0} = off;
+}
+
+def ADDI10SP : NDS32Inst16<(outs), (ins simm10op:$imm), "addi10.sp\t$imm"> {
+  bits<10> imm;
+  let Inst{15-10} = 0x3b; let Inst{9-0} = imm;
+}
+def ADDRI36SP : NDS32Inst16<(outs GPR:$rt), (ins off6w:$off),
+                            "addri36.sp\t$rt, $off"> {
+  bits<3> rt; bits<6> off;
+  let Inst{15-9} = 0x58; let Inst{8-6} = rt; let Inst{5-0} = off;
+}
+def LWI450 : NDS32Inst16<(outs gpr4:$rt), (ins GPR:$ra), "lwi450\t$rt, [$ra]"> {
+  bits<4> rt; bits<5> ra;
+  let mayLoad = 1;
+  let Inst{15-9} = 0x5a; let Inst{8-5} = rt; let Inst{4-0} = ra;
+}
+
+// 32-bit subri (reverse subtract immediate): rt = imm15 - ra.
+def SUBri : ALUi15<0x29, (outs GPR:$rt), (ins GPR:$ra, simm15op:$imm),
+                   "subri\t$rt, $ra, $imm", []>;
+
+def SWI450 : NDS32Inst16<(outs), (ins gpr4:$rt, GPR:$ra), "swi450\t$rt, [$ra]"> {
+  bits<4> rt; bits<5> ra;
+  let mayStore = 1;
+  let Inst{15-9} = 0x5b; let Inst{8-5} = rt; let Inst{4-0} = ra;
+}
+let Constraints = "$src = $rt" in
+def SRAI45 : NDS32Inst16<(outs gpr4:$rt), (ins gpr4:$src, i32imm:$sa),
+                         "srai45\t$rt, $sa"> {
+  bits<4> rt; bits<5> sa;
+  let Inst{15-9} = 0x48; let Inst{8-5} = rt; let Inst{4-0} = sa;
+}
+def SUBI333 : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, i32imm:$imm),
+                          "subi333\t$rt, $ra, $imm"> {
+  bits<3> rt; bits<3> ra; bits<3> imm;
+  let Inst{15-9} = 0x4f; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+// 16-bit two-register ALU group (major 0x7f, operation in the 3-bit sub field).
+class ALU33<bits<3> sub, string asmstr>
+    : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra), asmstr> {
+  bits<3> rt; bits<3> ra;
+  let Inst{15-9} = 0x7f; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = sub;
+}
+def NEG33 : ALU33<2, "neg33\t$rt, $ra">;
+def NOT33 : ALU33<3, "not33\t$rt, $ra">;
+def MUL33 : ALU33<4, "mul33\t$rt, $ra">;
+def XOR33 : ALU33<5, "xor33\t$rt, $ra">;
+def AND33 : ALU33<6, "and33\t$rt, $ra">;
+def OR33  : ALU33<7, "or33\t$rt, $ra">;
+
+// 16-bit unary "33" group (major 0x4b, operation in the 3-bit sub field).
+class Ext33<bits<3> sub, string asmstr>
+    : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra), asmstr> {
+  bits<3> rt; bits<3> ra;
+  let Inst{15-9} = 0x4b; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = sub;
+}
+def ZEB33  : Ext33<0, "zeb33\t$rt, $ra">;
+def ZEH33  : Ext33<1, "zeh33\t$rt, $ra">;
+def SEB33  : Ext33<2, "seb33\t$rt, $ra">;
+def SEH33  : Ext33<3, "seh33\t$rt, $ra">;
+def XLSB33 : Ext33<4, "xlsb33\t$rt, $ra">;
+def X11B33 : Ext33<5, "x11b33\t$rt, $ra">;
+// Same 0x4b major, but [5:3] is a 3-bit immediate instead of a register.
+class Ext33i<bits<3> sub, string asmstr>
+    : NDS32Inst16<(outs GPR:$rt), (ins i32imm:$imm), asmstr> {
+  bits<3> rt; bits<3> imm;
+  let Inst{15-9} = 0x4b; let Inst{8-6} = rt; let Inst{5-3} = imm; let Inst{2-0} = sub;
+}
+def BMSKI33 : Ext33i<6, "bmski33\t$rt, $imm">;
+def FEXTI33 : Ext33i<7, "fexti33\t$rt, $imm">;
+
+// 16-bit "333" three-register ALU (rt = ra op rb).
+class Alu333<bits<7> op, string asmstr>
+    : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra, GPR:$rb), asmstr> {
+  bits<3> rt; bits<3> ra; bits<3> rb;
+  let Inst{15-9} = op; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = rb;
+}
+def ADD333 : Alu333<0x4c, "add333\t$rt, $ra, $rb">;
+def SUB333 : Alu333<0x4d, "sub333\t$rt, $ra, $rb">;
+
+// 16-bit "333" narrow loads/stores (rt, [ra + scaled off3]).
+class Mem333<bits<7> op, Operand off, string asmstr, bit ld>
+    : NDS32Inst16<(outs), (ins GPR:$rt, GPR:$ra, off:$imm), asmstr> {
+  bits<3> rt; bits<3> ra; bits<3> imm;
+  let mayLoad = ld; let mayStore = !not(ld);
+  let Inst{15-9} = op; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+def LHI333 : Mem333<0x52, off3half, "lhi333\t$rt, [$ra + $imm]", 1>;
+def LBI333 : Mem333<0x53, off3byte, "lbi333\t$rt, [$ra + $imm]", 1>;
+def SHI333 : Mem333<0x56, off3half, "shi333\t$rt, [$ra + $imm]", 0>;
+def SBI333 : Mem333<0x57, off3byte, "sbi333\t$rt, [$ra + $imm]", 0>;
+let Constraints = "$ra = $ra_wb", mayStore = 1 in
+def SWI333_BI : NDS32Inst16<(outs GPR:$ra_wb),
+                            (ins GPR:$rt, GPR:$ra, off3words:$imm),
+                            "swi333.bi\t$rt, [$ra], $imm"> {
+  bits<3> rt; bits<3> ra; bits<3> imm;
+  let Inst{15-9} = 0x55; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+
+// 16-bit jump-and-link-register (jral5 $rb): op + 5-bit register.
+let isCall = 1, Defs = [R30] in
+def JRAL5 : NDS32Inst16<(outs), (ins GPR:$rb), "jral5\t$rb"> {
+  bits<5> rb;
+  let Inst{15-5} = 0x6e9; let Inst{4-0} = rb;
+}
+
+// 32-bit syscall: op6=0x32, 15-bit service id [19:5], sub [4:0]=0x0b.
+def SYSCALL : NDS32Inst<(outs), (ins i32imm:$swid), "syscall\t$swid", []> {
+  bits<15> swid;
+  let Inst{31-25} = 0x32; let Inst{24-20} = 0; let Inst{19-5} = swid;
+  let Inst{4-0} = 0x0b;
+}
+let Constraints = "$ra = $ra_wb", mayLoad = 1 in
+def LWI333_BI : NDS32Inst16<(outs GPR:$rt, GPR:$ra_wb),
+                            (ins GPR:$ra, off3words:$imm),
+                            "lwi333.bi\t$rt, [$ra], $imm"> {
+  bits<3> rt; bits<3> ra; bits<3> imm;
+  let Inst{15-9} = 0x51; let Inst{8-6} = rt; let Inst{5-3} = ra; let Inst{2-0} = imm;
+}
+
+// 32-bit branch-compare-immediate: op6=0x2d, rt[24:20], eq/ne bit[19],
+// signed 11-bit compare value [18:8], 8-bit PC-relative disp [7:0] (x2).
+class BcF<bits<1> ne, dag outs, dag ins, string asmstr>
+    : NDS32Inst<outs, ins, asmstr, []> {
+  bits<5> rt; bits<11> imm; bits<8> target;
+  let Inst{31-25} = 0x2d; let Inst{24-20} = rt; let Inst{19} = ne;
+  let Inst{18-8} = imm; let Inst{7-0} = target;
+}
+let isBranch = 1, isTerminator = 1 in {
+def BEQC : BcF<0, (outs), (ins GPR:$rt, simm11op:$imm, brtarget8:$target),
+                "beqc\t$rt, $imm, $target">;
+def BNEC : BcF<1, (outs), (ins GPR:$rt, simm11op:$imm, brtarget8:$target),
+                "bnec\t$rt, $imm, $target">;
+}
+
+// 32-bit gp-relative word load/store: op6=0x1e, rt[24:20], sub[19:17],
+// signed 17-bit word offset [16:0] (x4).
+class GpF<bits<3> sub, dag outs, dag ins, string asmstr>
+    : NDS32Inst<outs, ins, asmstr, []> {
+  bits<5> rt; bits<17> off;
+  let Inst{31-25} = 0x1e; let Inst{24-20} = rt; let Inst{19-17} = sub;
+  let Inst{16-0} = off;
+}
+def LWI_GP : GpF<6, (outs GPR:$rt), (ins off17w:$off), "lwi.gp\t$rt, [+ $off]"> {
+  let mayLoad = 1;
+}
+def SWI_GP : GpF<7, (outs), (ins GPR:$rt, off17w:$off), "swi.gp\t$rt, [+ $off]"> {
+  let mayStore = 1;
+}
+
+// 32-bit ALU2 group (op6=0x21): 3-register max/min and bit set/clear/test.
+def MAX  : ALUrrr<0x21, 0x000, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                  "max\t$rt, $ra, $rb", []>;
+def MIN  : ALUrrr<0x21, 0x001, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                  "min\t$rt, $ra, $rb", []>;
+def BSET : ALUsa<0x21, 0x008, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                 "bset\t$rt, $ra, $sa", []>;
+def BCLR : ALUsa<0x21, 0x009, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                 "bclr\t$rt, $ra, $sa", []>;
+def BTST : ALUsa<0x21, 0x00b, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                 "btst\t$rt, $ra, $sa", []>;
+
+// 32-bit load/store-multiple (op6=0x1d): rb[24:20], ra(base)[19:15],
+// re[14:10], enable4[9:6], addressing-mode sub[5:0] (bit5 = store). The set of
+// registers transferred is rb..re plus the $fp/$gp/$lp/$sp bits in enable4
+// (Andes prints that set as a trailing "! {...}" comment, derived info).
+class LsmwF<bits<6> sub, dag outs, dag ins, string asmstr>
+    : NDS32Inst<outs, ins, asmstr, []> {
+  bits<5> rb; bits<5> ra; bits<5> re; bits<4> en;
+  let Inst{31-25} = 0x1d; let Inst{24-20} = rb; let Inst{19-15} = ra;
+  let Inst{14-10} = re; let Inst{9-6} = en; let Inst{5-0} = sub;
+}
+let mayLoad = 1 in {
+def LMW_BI  : LsmwF<0x00, (outs), (ins GPR:$rb, GPR:$ra, GPR:$re, i32imm:$en),
+                    "lmw.bi\t$rb, [$ra], $re, $en">;
+def LMW_BIM : LsmwF<0x04, (outs), (ins GPR:$rb, GPR:$ra, GPR:$re, i32imm:$en),
+                    "lmw.bim\t$rb, [$ra], $re, $en">;
+def LMW_AIM : LsmwF<0x14, (outs), (ins GPR:$rb, GPR:$ra, GPR:$re, i32imm:$en),
+                    "lmw.aim\t$rb, [$ra], $re, $en">;
+}
+let mayStore = 1 in {
+def SMW_BI  : LsmwF<0x20, (outs), (ins GPR:$rb, GPR:$ra, GPR:$re, i32imm:$en),
+                    "smw.bi\t$rb, [$ra], $re, $en">;
+def SMW_BIM : LsmwF<0x24, (outs), (ins GPR:$rb, GPR:$ra, GPR:$re, i32imm:$en),
+                    "smw.bim\t$rb, [$ra], $re, $en">;
+def SMW_ADM : LsmwF<0x3c, (outs), (ins GPR:$rb, GPR:$ra, GPR:$re, i32imm:$en),
+                    "smw.adm\t$rb, [$ra], $re, $en">;
+}
+
+// --- Final long-tail coverage (rare forms; verified vs Andes). ---
+// 32-bit 3-register ALU2 ops.
+def NOR     : ALUrrr<0x20, 0x005, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                     "nor\t$rt, $ra, $rb", []>;
+def BITC    : ALUrrr<0x20, 0x012, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                     "bitc\t$rt, $ra, $rb", []>;
+def MULR64  : ALUrrr<0x21, 0x069, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                     "mulr64\t$rt, $ra, $rb", []>;
+def MULSR64 : ALUrrr<0x21, 0x068, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                     "mulsr64\t$rt, $ra, $rb", []>;
+def BTGL    : ALUsa<0x21, 0x00a, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
+                    "btgl\t$rt, $ra, $sa", []>;
+// 32-bit gp-relative signed byte load (op6=0x17, sub[19:17]=4, off17 unscaled).
+def LBSI_GP : NDS32Inst<(outs GPR:$rt), (ins off17b:$off), "lbsi.gp\t$rt, [+ $off]",
+                        []> {
+  bits<5> rt; bits<17> off;
+  let mayLoad = 1;
+  let Inst{31-25} = 0x17; let Inst{24-20} = rt; let Inst{19-17} = 4;
+  let Inst{16-0} = off;
+}
+// 32-bit reg-offset post-increment store byte (op6=0x1c, sub=0x0c).
+def SB_BI : RegOffF<0x0c, (outs), (ins GPR:$rt, memrr:$addr),
+                    "sb.bi\t$rt, $addr", []> { let mayStore = 1; }
+
+// 16-bit jr5-family: add5.pc adds PC to a register.
+def ADD5PC : NDS32Inst16<(outs), (ins GPR:$rb), "add5.pc\t$rb"> {
+  bits<5> rb;
+  let Inst{15-5} = 0x6ed; let Inst{4-0} = rb;
+}
+// 16-bit short compare-branches beqs38/bnes38 (rt vs implied, 8-bit disp).
+let isBranch = 1, isTerminator = 1 in {
+def BEQS38 : NDS32Inst16<(outs), (ins GPR:$rt, brtarget8:$target),
+                         "beqs38\t$rt, $target"> {
+  bits<3> rt; bits<8> target;
+  let Inst{15-11} = 0x1a; let Inst{10-8} = rt; let Inst{7-0} = target;
+}
+def BNES38 : NDS32Inst16<(outs), (ins GPR:$rt, brtarget8:$target),
+                         "bnes38\t$rt, $target"> {
+  bits<3> rt; bits<8> target;
+  let Inst{15-11} = 0x1b; let Inst{10-8} = rt; let Inst{7-0} = target;
+}
 }
 
 // 16-bit short branches. The 8-bit displacement is PC-relative (scaled by 2),

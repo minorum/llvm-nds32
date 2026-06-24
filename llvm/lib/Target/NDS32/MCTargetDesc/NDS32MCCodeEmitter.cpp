@@ -28,12 +28,10 @@ namespace {
 class NDS32MCCodeEmitter : public MCCodeEmitter {
   const MCInstrInfo &MCII;
   const MCRegisterInfo &MRI;
-  bool IsLittleEndian;
 
 public:
-  NDS32MCCodeEmitter(const MCInstrInfo &MCII, const MCRegisterInfo &MRI,
-                     bool IsLittleEndian)
-      : MCII(MCII), MRI(MRI), IsLittleEndian(IsLittleEndian) {}
+  NDS32MCCodeEmitter(const MCInstrInfo &MCII, const MCRegisterInfo &MRI)
+      : MCII(MCII), MRI(MRI) {}
 
   void encodeInstruction(const MCInst &MI, SmallVectorImpl<char> &CB,
                          SmallVectorImpl<MCFixup> &Fixups,
@@ -331,9 +329,11 @@ void NDS32MCCodeEmitter::encodeInstruction(
   uint64_t Bits = getBinaryCodeForInstr(MI, Fixups, STI);
   unsigned Size = MCII.get(MI.getOpcode()).getSize();
 
+  // NDS32 instructions are always big-endian, independent of the data
+  // endianness selected by the triple (the Andes toolchain emits identical
+  // .text for -EB and -EL; only data is byte-swapped). Always write big-endian.
   raw_svector_ostream OS(CB);
-  support::endian::Writer Writer(
-      OS, IsLittleEndian ? llvm::endianness::little : llvm::endianness::big);
+  support::endian::Writer Writer(OS, llvm::endianness::big);
   if (Size == 2)
     Writer.write<uint16_t>(static_cast<uint16_t>(Bits));
   else
@@ -342,6 +342,5 @@ void NDS32MCCodeEmitter::encodeInstruction(
 
 MCCodeEmitter *llvm::createNDS32MCCodeEmitter(const MCInstrInfo &MCII,
                                               MCContext &Ctx) {
-  bool IsLittleEndian = Ctx.getTargetTriple().isLittleEndian();
-  return new NDS32MCCodeEmitter(MCII, *Ctx.getRegisterInfo(), IsLittleEndian);
+  return new NDS32MCCodeEmitter(MCII, *Ctx.getRegisterInfo());
 }

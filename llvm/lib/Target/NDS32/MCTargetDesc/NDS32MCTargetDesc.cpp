@@ -12,6 +12,8 @@
 #include "TargetInfo/NDS32TargetInfo.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrAnalysis.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -65,6 +67,39 @@ static MCInstPrinter *createNDS32MCInstPrinter(const Triple &T,
   return nullptr;
 }
 
+namespace {
+// Lets llvm-objdump (and other consumers) resolve PC-relative branch/call
+// targets to absolute addresses and symbol names — the key readability win for
+// reverse-engineering. Direct branch/call targets are encoded as a signed
+// displacement in the final operand (the decoder leaves it relative unless a
+// symbolizer rewrote it to an expression).
+class NDS32MCInstrAnalysis : public MCInstrAnalysis {
+public:
+  explicit NDS32MCInstrAnalysis(const MCInstrInfo *Info)
+      : MCInstrAnalysis(Info) {}
+
+  bool evaluateBranch(const MCInst &Inst, uint64_t Addr, uint64_t Size,
+                      uint64_t &Target) const override {
+    if (Inst.getNumOperands() == 0)
+      return false;
+    // Only direct (PC-relative immediate) branches/calls are computable; skip
+    // indirect (register) branches and any operand a symbolizer turned into an
+    // expression.
+    if (!(isBranch(Inst) || isCall(Inst)) || isIndirectBranch(Inst))
+      return false;
+    const MCOperand &Last = Inst.getOperand(Inst.getNumOperands() - 1);
+    if (!Last.isImm())
+      return false;
+    Target = Addr + Last.getImm();
+    return true;
+  }
+};
+} // namespace
+
+static MCInstrAnalysis *createNDS32MCInstrAnalysis(const MCInstrInfo *Info) {
+  return new NDS32MCInstrAnalysis(Info);
+}
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeNDS32TargetMC() {
   for (Target *T : {&getTheNDS32Target(), &getTheNDS32leTarget(), &getTheNDS32beTarget()}) {
     TargetRegistry::RegisterMCAsmInfo(*T, createNDS32MCAsmInfo);
@@ -72,6 +107,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeNDS32TargetMC() {
     TargetRegistry::RegisterMCRegInfo(*T, createNDS32MCRegisterInfo);
     TargetRegistry::RegisterMCSubtargetInfo(*T, createNDS32MCSubtargetInfo);
     TargetRegistry::RegisterMCInstPrinter(*T, createNDS32MCInstPrinter);
+    TargetRegistry::RegisterMCInstrAnalysis(*T, createNDS32MCInstrAnalysis);
     TargetRegistry::RegisterMCCodeEmitter(*T, createNDS32MCCodeEmitter);
     TargetRegistry::RegisterMCAsmBackend(*T, createNDS32AsmBackend);
   }

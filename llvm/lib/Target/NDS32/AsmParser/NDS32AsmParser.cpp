@@ -20,6 +20,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Casting.h"
 
 using namespace llvm;
@@ -147,7 +148,7 @@ class NDS32AsmParser : public MCTargetAsmParser {
 #define GET_ASSEMBLER_HEADER
 #include "NDS32GenAsmMatcher.inc"
 
-  bool parseOperand(OperandVector &Operands);
+  bool parseOperand(OperandVector &Operands, bool PostInc);
   MCRegister matchRegister(StringRef Name);
 
 public:
@@ -178,6 +179,16 @@ MCRegister NDS32AsmParser::matchRegister(StringRef Name) {
   MCRegister Reg = MatchRegisterName(Name);
   if (!Reg && Name.starts_with("$"))
     Reg = MatchRegisterName(Name.drop_front());
+  // Accept the ABI spellings as input too (the printer emits them).
+  if (!Reg) {
+    StringRef N = Name.starts_with("$") ? Name.drop_front() : Name;
+    Reg = StringSwitch<MCRegister>(N)
+              .Case("fp", NDS32::R28)
+              .Case("gp", NDS32::R29)
+              .Case("lp", NDS32::R30)
+              .Case("sp", NDS32::R31)
+              .Default(MCRegister());
+  }
   return Reg;
 }
 
@@ -214,7 +225,7 @@ ParseStatus NDS32AsmParser::tryParseRegister(MCRegister &Reg, SMLoc &StartLoc,
   return ParseStatus::NoMatch;
 }
 
-bool NDS32AsmParser::parseOperand(OperandVector &Operands) {
+bool NDS32AsmParser::parseOperand(OperandVector &Operands, bool PostInc) {
   AsmLexer &Lexer = Parser.getLexer();
   SMLoc S = Lexer.getTok().getLoc();
 
@@ -228,6 +239,18 @@ bool NDS32AsmParser::parseOperand(OperandVector &Operands) {
     SMLoc BS, BE;
     if (!tryParseRegister(Base, BS, BE).isSuccess())
       return Error(Lexer.getTok().getLoc(), "expected base register");
+
+    // Post-increment form "[$ra]": the base is a plain register operand (the
+    // increment follows the closing bracket as a separate operand).
+    if (PostInc) {
+      if (Lexer.isNot(AsmToken::RBrac))
+        return Error(Lexer.getTok().getLoc(), "expected ']'");
+      Operands.push_back(NDS32Operand::createReg(Base, BS, BE));
+      Operands.push_back(
+          NDS32Operand::createToken("]", Lexer.getTok().getLoc()));
+      Lexer.Lex();
+      return false;
+    }
 
     if (Lexer.is(AsmToken::Plus)) {
       Lexer.Lex();
@@ -292,11 +315,15 @@ bool NDS32AsmParser::parseInstruction(ParseInstructionInfo &Info,
   if (Parser.getLexer().is(AsmToken::EndOfStatement))
     return false;
 
-  if (parseOperand(Operands))
+  // Post-increment loads/stores (mnemonic suffix ".bi") spell their base as a
+  // bare register inside literal brackets — "[$ra]" — not as a memory operand.
+  const bool PostInc = Name.ends_with(".bi");
+
+  if (parseOperand(Operands, PostInc))
     return true;
   while (Parser.getLexer().is(AsmToken::Comma)) {
     Parser.getLexer().Lex();
-    if (parseOperand(Operands))
+    if (parseOperand(Operands, PostInc))
       return true;
   }
   if (Parser.getLexer().isNot(AsmToken::EndOfStatement))

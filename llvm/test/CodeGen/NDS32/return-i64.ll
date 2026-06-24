@@ -32,8 +32,8 @@ define i64 @test_i64_add(i64 %a, i64 %b) {
 
 define i64 @test_i64_stack(i64 %a, i64 %b, i64 %c, i64 %d) {
 ; CHECK-LABEL: test_i64_stack:
-; CHECK: lwi	{{\$r[0-9]+}}, [{{\$r31 \+ [0-9]+}}]
-; CHECK: lwi	{{\$r[0-9]+}}, [{{\$r31 \+ [0-9]+}}]
+; CHECK: lwi	{{\$r[0-9]+}}, [{{\$sp \+ [0-9]+}}]
+; CHECK: lwi	{{\$r[0-9]+}}, [{{\$sp \+ [0-9]+}}]
 ; CHECK: ret
   %1 = add i64 %a, %b
   %2 = add i64 %1, %c

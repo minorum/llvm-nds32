@@ -3,7 +3,9 @@ class NDS32Reg<string n, bits<5> num> : Register<n> {
   let HWEncoding{4-0} = num;
 }
 
-// General Purpose Registers
+// General Purpose Registers. The numeric ($rN) name is primary (keeps parsing
+// and codegen stable); the InstPrinter substitutes the ABI names $fp/$gp/$lp/$sp
+// for r28-r31 on output to match the Andes toolchain.
 foreach i = 0-31 in {
   def R#i : NDS32Reg<"$r"#i, i>;
 }

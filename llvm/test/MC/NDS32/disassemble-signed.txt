@@ -1,0 +1,40 @@
+# RUN: llvm-mc -triple=nds32be-unknown-none-elf -disassemble %s | FileCheck %s
+
+# Regression coverage for the signed-immediate, branch-target, signed memory
+# offset and post-increment decoders. Before these DecoderMethods were wired,
+# every value below decoded as a raw unsigned field (e.g. addi -8 -> 32760).
+
+# Signed 15-bit I-type immediate (addi/slti/sltsi).
+# CHECK: addi $r1, $r0, -8
+0x50 0x10 0x7f 0xf8
+
+# Signed 20-bit immediate (movi).
+# CHECK: movi $r0, -12345
+0x44 0x0f 0xcf 0xc7
+
+# Signed 5-bit immediate (16-bit movi55).
+# CHECK: movi55 $r0, -1
+0x84 0x1f
+
+# Signed 15-bit memory offset (lwi/swi accept negative displacements).
+# CHECK: lwi $r4, [$r6 - 4]
+0x04 0x43 0x7f 0xff
+
+# Post-increment immediate, rescaled to bytes (encoded field 1 -> +4 words).
+# CHECK: lwi.bi $r5, [$r6], 4
+0x0c 0x53 0x00 0x01
+
+# The same 15-bit field is UNSIGNED for andi/ori/xori (no sign extension):
+# 0x7ff8 stays +32760, it does not become -8.
+# CHECK: ori $r2, $r3, 32760
+0x58 0x21 0xff 0xf8
+
+# 32-bit PC-relative branch/call targets (signed, halfword-scaled).
+# CHECK: beqz $r3, -10
+0x4e 0x32 0xff 0xfb
+# CHECK: beq $r1, $r2, -14
+0x4c 0x11 0x3f 0xf9
+# CHECK: bnez $r4, 4
+0x4e 0x43 0x00 0x02
+# CHECK: jal -22
+0x49 0xff 0xff 0xf5

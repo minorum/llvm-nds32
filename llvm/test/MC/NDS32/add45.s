@@ -8,7 +8,7 @@
 add45 $r0, $r1
 # CHECK: add45 $r11, $r5  ! encoding: [0x89,0x65]
 add45 $r11, $r5
-# CHECK: add45 $r16, $r31  ! encoding: [0x89,0x9f]
+# CHECK: add45 $r16, $sp  ! encoding: [0x89,0x9f]
 add45 $r16, $r31
 # CHECK: addi45 $r0, 0  ! encoding: [0x8c,0x00]
 addi45 $r0, 0
