@@ -89,7 +89,9 @@ uint32_t NDS32MCCodeEmitter::getImm16(const MCInst &MI, const MCOperand &Op,
                                       SmallVectorImpl<MCFixup> &Fixups,
                                       const MCSubtargetInfo &STI) const {
   if (Op.isImm())
-    return static_cast<uint32_t>(Op.getImm()) & 0xffff;
+    // The I-type immediate field is 15 bits ([14:0]); masking 16 bits would
+    // leak bit 15 of a negative immediate into the $ra field.
+    return static_cast<uint32_t>(Op.getImm()) & 0x7fff;
 
   assert(Op.isExpr() && "expected immediate or expression operand");
   MCFixupKind Kind = MCFixupKind(0);
