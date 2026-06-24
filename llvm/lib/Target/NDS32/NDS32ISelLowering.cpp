@@ -81,6 +81,10 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
     setIndexedLoadAction(ISD::POST_INC, VT, Legal);
     setIndexedStoreAction(ISD::POST_INC, VT, Legal);
   }
+  // No instruction sign-extends a 1-bit value; expand to shl+ashr by 31.
+  // (i8/i16 are handled by seb/seh patterns.) Surfaced compiling
+  // compiler_builtins, which sign-extends a boolean NOT result.
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
   // Frame/return address builtins.
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
