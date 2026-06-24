@@ -128,18 +128,21 @@ def memri : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPR, i32imm);
   let EncoderMethod = "encodeMemWords";
+  let DecoderMethod = "decodeMemWords";
 }
 
 def memri8 : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPR, i32imm);
   let EncoderMethod = "encodeMemBytes";
+  let DecoderMethod = "decodeMemBytes";
 }
 
 def memri16 : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops GPR, i32imm);
   let EncoderMethod = "encodeMemHalfwords";
+  let DecoderMethod = "decodeMemHalfwords";
 }
 
 // I-type immediate ALU format.
@@ -220,6 +223,7 @@ def memrr : Operand<i32> {
   let PrintMethod = "printRegOffsetMem";
   let MIOperandInfo = (ops GPR, GPR, i32imm);
   let EncoderMethod = "encodeRegOffset";
+  let DecoderMethod = "decodeRegOffset";
 }
 def regoaddr : ComplexPattern<iPTR, 3, "selectRegOffsetAddr", []>;
 

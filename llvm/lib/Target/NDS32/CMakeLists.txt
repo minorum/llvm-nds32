@@ -8,6 +8,7 @@ tablegen(LLVM NDS32GenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM NDS32GenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM NDS32GenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM NDS32GenMCCodeEmitter.inc -gen-emitter)
+tablegen(LLVM NDS32GenDisassemblerTables.inc -gen-disassembler)
 
 add_public_tablegen_target(NDS32CommonTableGen)
 
@@ -32,5 +33,6 @@ add_llvm_target(NDS32CodeGen
   Target
   )
 
+add_subdirectory(Disassembler)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
