@@ -7,6 +7,7 @@ tablegen(LLVM NDS32GenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM NDS32GenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM NDS32GenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM NDS32GenAsmWriter.inc -gen-asm-writer)
+tablegen(LLVM NDS32GenMCCodeEmitter.inc -gen-emitter)
 
 add_public_tablegen_target(NDS32CommonTableGen)
 

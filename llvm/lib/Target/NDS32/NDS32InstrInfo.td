@@ -5,6 +5,25 @@ class NDS32Inst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instructi
   let InOperandList = ins;
   let AsmString = asmstr;
   let Pattern = pattern;
+  // Encoding migration (Round 3 tooling): instructions whose Inst{} fields are
+  // filled in are validated by NDS32MCCodeEmitter against the hand-written
+  // encoder; the rest still encode via the hand-written switch.
+  field bits<32> Inst;
+}
+
+// ALU register format: op6 in Inst[31:25], rt/ra/rb in the standard fields, a
+// sub-opcode in Inst[9:0].
+class ALUrrr<bits<7> op6, bits<10> sub, dag outs, dag ins, string asmstr,
+             list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> rt;
+  bits<5> ra;
+  bits<5> rb;
+  let Inst{31-25} = op6;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = ra;
+  let Inst{14-10} = rb;
+  let Inst{9-0} = sub;
 }
 
 def NDS32retflag : SDNode<"NDS32ISD::RET_FLAG", SDTNone,
@@ -92,9 +111,9 @@ def MOVI : NDS32Inst<(outs GPR:$dst), (ins i32imm:$imm),
                      "movi\t$dst, $imm",
                      [(set GPR:$dst, simm20:$imm)]>;
 
-def ADDrr : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs),
-                      "add\t$dst, $lhs, $rhs",
-                      [(set GPR:$dst, (add GPR:$lhs, GPR:$rhs))]>;
+def ADDrr : ALUrrr<0x20, 0, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
+                   "add\t$rt, $ra, $rb",
+                   [(set GPR:$rt, (add GPR:$ra, GPR:$rb))]>;
 
 def ADDri : NDS32Inst<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$imm),
                       "addi\t$dst, $lhs, $imm",
@@ -364,6 +383,7 @@ class NDS32Inst16<dag outs, dag ins, string asmstr> : Instruction {
   let InOperandList = ins;
   let AsmString = asmstr;
   let Pattern = [];
+  field bits<16> Inst;
 }
 
 def MOV55   : NDS32Inst16<(outs GPR:$rt), (ins GPR:$ra), "mov55\t$rt, $ra">;
