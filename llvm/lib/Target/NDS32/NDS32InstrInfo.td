@@ -175,6 +175,44 @@ class MoviF<bits<7> op6, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{19-0} = imm;
 }
 
+// divsr/divr: quotient in rt, remainder in [9:5], op6=0x20, sub in [4:0].
+class DivF<bits<5> sub, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> quo;
+  bits<5> rem;
+  bits<5> lhs;
+  bits<5> rhs;
+  let Inst{31-25} = 0x20;
+  let Inst{24-20} = quo;
+  let Inst{19-15} = lhs;
+  let Inst{14-10} = rhs;
+  let Inst{9-5} = rem;
+  let Inst{4-0} = sub;
+}
+
+// Single-precision FPU formats (op6 = 0x35). Three-register and two-register
+// (the latter's sub-opcode spans [14:0], so the second source field is opcode).
+class FPrrr<bits<10> sub, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> fd;
+  bits<5> fs1;
+  bits<5> fs2;
+  let Inst{31-25} = 0x35;
+  let Inst{24-20} = fd;
+  let Inst{19-15} = fs1;
+  let Inst{14-10} = fs2;
+  let Inst{9-0} = sub;
+}
+class FP2r<bits<15> sub, dag outs, dag ins, string asmstr, list<dag> pattern>
+    : NDS32Inst<outs, ins, asmstr, pattern> {
+  bits<5> fd;
+  bits<5> fs;
+  let Inst{31-25} = 0x35;
+  let Inst{24-20} = fd;
+  let Inst{19-15} = fs;
+  let Inst{14-0} = sub;
+}
+
 def addr : ComplexPattern<iPTR, 2, "selectMemAddr", [frameindex]>;
 
 // Register-offset addressing: base register + (index << scale), scale in 0..3.
@@ -233,15 +271,15 @@ def MULrr : ALUrrr<0x21, 0x24, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                    "mul\t$rt, $ra, $rb",
                    [(set GPR:$rt, (mul GPR:$ra, GPR:$rb))]>;
 
-def DIVSR : NDS32Inst<(outs GPR:$quo, GPR:$rem), (ins GPR:$lhs, GPR:$rhs),
-                      "divsr\t$quo, $rem, $lhs, $rhs",
-                      [(set GPR:$quo, (sdiv GPR:$lhs, GPR:$rhs)),
-                       (set GPR:$rem, (srem GPR:$lhs, GPR:$rhs))]>;
+def DIVSR : DivF<0x16, (outs GPR:$quo, GPR:$rem), (ins GPR:$lhs, GPR:$rhs),
+                 "divsr\t$quo, $rem, $lhs, $rhs",
+                 [(set GPR:$quo, (sdiv GPR:$lhs, GPR:$rhs)),
+                  (set GPR:$rem, (srem GPR:$lhs, GPR:$rhs))]>;
 
-def DIVR : NDS32Inst<(outs GPR:$quo, GPR:$rem), (ins GPR:$lhs, GPR:$rhs),
-                     "divr\t$quo, $rem, $lhs, $rhs",
-                     [(set GPR:$quo, (udiv GPR:$lhs, GPR:$rhs)),
-                      (set GPR:$rem, (urem GPR:$lhs, GPR:$rhs))]>;
+def DIVR : DivF<0x17, (outs GPR:$quo, GPR:$rem), (ins GPR:$lhs, GPR:$rhs),
+                "divr\t$quo, $rem, $lhs, $rhs",
+                [(set GPR:$quo, (udiv GPR:$lhs, GPR:$rhs)),
+                 (set GPR:$rem, (urem GPR:$lhs, GPR:$rhs))]>;
 
 def ANDrr : ALUrrr<0x20, 2, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                    "and\t$rt, $ra, $rb",
@@ -630,40 +668,54 @@ def : Pat<(i32 imm_wide:$imm),
 // boundary via fmtsr/fmfsr (also used for bitcasts and int<->float plumbing).
 //===----------------------------------------------------------------------===//
 let Predicates = [HasFPU] in {
-def FADDS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                      "fadds\t$fd, $fs1, $fs2",
-                      [(set FPR32:$fd, (fadd FPR32:$fs1, FPR32:$fs2))]>;
-def FSUBS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                      "fsubs\t$fd, $fs1, $fs2",
-                      [(set FPR32:$fd, (fsub FPR32:$fs1, FPR32:$fs2))]>;
-def FMULS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                      "fmuls\t$fd, $fs1, $fs2",
-                      [(set FPR32:$fd, (fmul FPR32:$fs1, FPR32:$fs2))]>;
-def FDIVS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                      "fdivs\t$fd, $fs1, $fs2",
-                      [(set FPR32:$fd, (fdiv FPR32:$fs1, FPR32:$fs2))]>;
-def FSQRTS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs),
-                       "fsqrts\t$fd, $fs",
-                       [(set FPR32:$fd, (fsqrt FPR32:$fs))]>;
-def FABSS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs),
-                      "fabss\t$fd, $fs",
-                      [(set FPR32:$fd, (fabs FPR32:$fs))]>;
+def FADDS : FPrrr<0x000, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                  "fadds\t$fd, $fs1, $fs2",
+                  [(set FPR32:$fd, (fadd FPR32:$fs1, FPR32:$fs2))]>;
+def FSUBS : FPrrr<0x040, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                  "fsubs\t$fd, $fs1, $fs2",
+                  [(set FPR32:$fd, (fsub FPR32:$fs1, FPR32:$fs2))]>;
+def FMULS : FPrrr<0x300, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                  "fmuls\t$fd, $fs1, $fs2",
+                  [(set FPR32:$fd, (fmul FPR32:$fs1, FPR32:$fs2))]>;
+def FDIVS : FPrrr<0x340, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                  "fdivs\t$fd, $fs1, $fs2",
+                  [(set FPR32:$fd, (fdiv FPR32:$fs1, FPR32:$fs2))]>;
+def FSQRTS : FP2r<0x07c0, (outs FPR32:$fd), (ins FPR32:$fs),
+                  "fsqrts\t$fd, $fs",
+                  [(set FPR32:$fd, (fsqrt FPR32:$fs))]>;
+def FABSS : FP2r<0x17c0, (outs FPR32:$fd), (ins FPR32:$fs),
+                 "fabss\t$fd, $fs",
+                 [(set FPR32:$fd, (fabs FPR32:$fs))]>;
 // Copy with sign of fs2 / with negated sign of fs2.
-def FCPYSS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                       "fcpyss\t$fd, $fs1, $fs2",
-                       [(set FPR32:$fd, (fcopysign FPR32:$fs1, FPR32:$fs2))]>;
-def FCPYNSS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                        "fcpynss\t$fd, $fs1, $fs2", []>;
+def FCPYSS : FPrrr<0x0c0, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                   "fcpyss\t$fd, $fs1, $fs2",
+                   [(set FPR32:$fd, (fcopysign FPR32:$fs1, FPR32:$fs2))]>;
+def FCPYNSS : FPrrr<0x080, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                    "fcpynss\t$fd, $fs1, $fs2", []>;
 def : Pat<(fneg FPR32:$x), (FCPYNSS FPR32:$x, FPR32:$x)>;
 
 // Conversions: result/source integer bits live in an FPR; move to/from a GPR
 // with fmfsr/fmtsr.
-def FS2SI : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fs2si\t$fd, $fs", []>;
-def FS2UI : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fs2ui\t$fd, $fs", []>;
-def FSI2S : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fsi2s\t$fd, $fs", []>;
-def FUI2S : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs), "fui2s\t$fd, $fs", []>;
-def FMFSR : NDS32Inst<(outs GPR:$rt), (ins FPR32:$fs), "fmfsr\t$rt, $fs", []>;
-def FMTSR : NDS32Inst<(outs FPR32:$fd), (ins GPR:$rt), "fmtsr\t$rt, $fd", []>;
+def FS2SI : FP2r<0x63c0, (outs FPR32:$fd), (ins FPR32:$fs), "fs2si\t$fd, $fs", []>;
+def FS2UI : FP2r<0x43c0, (outs FPR32:$fd), (ins FPR32:$fs), "fs2ui\t$fd, $fs", []>;
+def FSI2S : FP2r<0x33c0, (outs FPR32:$fd), (ins FPR32:$fs), "fsi2s\t$fd, $fs", []>;
+def FUI2S : FP2r<0x23c0, (outs FPR32:$fd), (ins FPR32:$fs), "fui2s\t$fd, $fs", []>;
+def FMFSR : NDS32Inst<(outs GPR:$rt), (ins FPR32:$fs), "fmfsr\t$rt, $fs", []> {
+  bits<5> rt;
+  bits<5> fs;
+  let Inst{31-25} = 0x35;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = fs;
+  let Inst{14-0} = 1;
+}
+def FMTSR : NDS32Inst<(outs FPR32:$fd), (ins GPR:$rt), "fmtsr\t$rt, $fd", []> {
+  bits<5> fd;
+  bits<5> rt;
+  let Inst{31-25} = 0x35;
+  let Inst{24-20} = rt;
+  let Inst{19-15} = fd;
+  let Inst{14-0} = 9;
+}
 
 def : Pat<(i32 (bitconvert FPR32:$x)), (FMFSR FPR32:$x)>;
 def : Pat<(f32 (bitconvert GPR:$x)), (FMTSR GPR:$x)>;
@@ -673,20 +725,20 @@ def : Pat<(f32 (sint_to_fp GPR:$x)), (FSI2S (FMTSR GPR:$x))>;
 def : Pat<(f32 (uint_to_fp GPR:$x)), (FUI2S (FMTSR GPR:$x))>;
 
 // Loads and stores (word-scaled offset, like lwi/swi).
-def FLSI : NDS32Inst<(outs FPR32:$fd), (ins memri:$addr),
-                     "flsi\t$fd, [$addr]",
-                     [(set FPR32:$fd, (load addr:$addr))]>;
-def FSSI : NDS32Inst<(outs), (ins FPR32:$fd, memri:$addr),
-                     "fssi\t$fd, [$addr]",
-                     [(store FPR32:$fd, addr:$addr)]>;
+def FLSI : MemF<0x18, (outs FPR32:$rt), (ins memri:$addr),
+                "flsi\t$rt, [$addr]",
+                [(set FPR32:$rt, (load addr:$addr))]>;
+def FSSI : MemF<0x19, (outs), (ins FPR32:$rt, memri:$addr),
+                "fssi\t$rt, [$addr]",
+                [(store FPR32:$rt, addr:$addr)]>;
 
 // Compares produce a 0/1 in an FPR; move it to a GPR boolean with fmfsr.
-def FCMPEQS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                        "fcmpeqs\t$fd, $fs1, $fs2", []>;
-def FCMPLTS : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                        "fcmplts\t$fd, $fs1, $fs2", []>;
-def FCMPLES : NDS32Inst<(outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
-                        "fcmples\t$fd, $fs1, $fs2", []>;
+def FCMPEQS : FPrrr<0x004, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                    "fcmpeqs\t$fd, $fs1, $fs2", []>;
+def FCMPLTS : FPrrr<0x084, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                    "fcmplts\t$fd, $fs1, $fs2", []>;
+def FCMPLES : FPrrr<0x104, (outs FPR32:$fd), (ins FPR32:$fs1, FPR32:$fs2),
+                    "fcmples\t$fd, $fs1, $fs2", []>;
 def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOEQ)), (FMFSR (FCMPEQS $a, $b))>;
 def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOLT)), (FMFSR (FCMPLTS $a, $b))>;
 def : Pat<(i32 (setcc FPR32:$a, FPR32:$b, SETOLE)), (FMFSR (FCMPLES $a, $b))>;
