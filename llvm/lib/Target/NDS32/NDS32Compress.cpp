@@ -53,6 +53,9 @@ char NDS32Compress::ID = 0;
 
 bool NDS32Compress::runOnMachineFunction(MachineFunction &MF) {
   const NDS32Subtarget &STI = MF.getSubtarget<NDS32Subtarget>();
+  // A "+no-16bit" core must never see a compressed form.
+  if (!STI.has16Bit())
+    return false;
   TII = STI.getInstrInfo();
   TRI = STI.getRegisterInfo();
   bool Changed = false;

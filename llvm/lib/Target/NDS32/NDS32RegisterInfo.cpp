@@ -33,12 +33,22 @@ NDS32RegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
       NDS32::R14, NDS32::R28, NDS32::R30,
       0
   };
+  // A reduced-register core has no r11-r14 to save.
+  static const MCPhysReg CalleeSavedRegsReduced[] = {
+      NDS32::R6, NDS32::R7, NDS32::R8, NDS32::R9,
+      NDS32::R10, NDS32::R28, NDS32::R30,
+      0
+  };
+  if (MF && MF->getSubtarget<NDS32Subtarget>().hasReducedRegs())
+    return CalleeSavedRegsReduced;
   return CalleeSavedRegs;
 }
 
 const uint32_t *
 NDS32RegisterInfo::getCallPreservedMask(const MachineFunction &MF,
                                         CallingConv::ID CC) const {
+  if (MF.getSubtarget<NDS32Subtarget>().hasReducedRegs())
+    return CSR_NDS32_Reduced_RegMask;
   return CSR_NDS32_RegMask;
 }
 
@@ -53,6 +63,21 @@ BitVector NDS32RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(NDS32::R29); // GP
   Reserved.set(NDS32::R30); // LP
   Reserved.set(NDS32::R31); // SP
+  // On a reduced-register core (FeatureReducedRegs) only r0-r10, r15 and
+  // r28-r31 are implemented, so everything else must be off-limits to the
+  // allocator. Touching r11-r14 or r16-r27 there yields code that faults --
+  // and nothing else in the pipeline would catch it.
+  // Listed explicitly, NOT as a numeric range: the generated register enum is
+  // ordered by record *name*, so R16..R23 would sweep in R2.
+  if (MF.getSubtarget<NDS32Subtarget>().hasReducedRegs()) {
+    static const MCPhysReg Absent[] = {
+        NDS32::R11, NDS32::R12, NDS32::R13, NDS32::R14,
+        NDS32::R16, NDS32::R17, NDS32::R18, NDS32::R19,
+        NDS32::R20, NDS32::R21, NDS32::R22, NDS32::R23,
+    };
+    for (MCPhysReg R : Absent)
+      Reserved.set(R);
+  }
   return Reserved;
 }
 

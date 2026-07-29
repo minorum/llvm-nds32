@@ -1,3 +1,11 @@
+//===-- NDS32InstrInfo.td - Target description for NDS32 ---*- tablegen -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 class NDS32Inst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction {
   let Namespace = "NDS32";
   let Size = 4;
@@ -465,6 +473,8 @@ def ANDri : ALUi15<0x2a, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
 // bitci rt, ra, #imm15: rt = ra & ~zext(imm15). Matches an AND with a constant
 // whose complement fits in 15 unsigned bits (i.e. only low bits are cleared),
 // saving a movi+and. The operand carries the cleared mask (~C).
+// V3-baseline only: the V2 core (e.g. the MT6785 conn-MCU) traps on bitci as an
+// illegal instruction, so the pattern must not be selected below V3.
 def bitci_xform : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(~(uint32_t)N->getZExtValue() & 0x7fff,
                                    SDLoc(N), MVT::i32);
@@ -474,7 +484,8 @@ def imm_bitci : PatLeaf<(imm), [{
 }], bitci_xform>;
 def BITCI : ALUi15<0x33, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
                    "bitci\t$rt, $ra, $imm",
-                   [(set GPR:$rt, (and GPR:$ra, imm_bitci:$imm))]>;
+                   [(set GPR:$rt, (and GPR:$ra, imm_bitci:$imm))]>,
+                   Requires<[HasV3Ops]>;
 
 def ORri : ALUi15<0x2c, (outs GPR:$rt), (ins GPR:$ra, imm15op:$imm),
                   "ori\t$rt, $ra, $imm",
@@ -1164,6 +1175,37 @@ def FS2SI : FP2r<0x63c0, (outs FPR32:$fd), (ins FPR32:$fs), "fs2si\t$fd, $fs", [
 def FS2UI : FP2r<0x43c0, (outs FPR32:$fd), (ins FPR32:$fs), "fs2ui\t$fd, $fs", []>;
 def FSI2S : FP2r<0x33c0, (outs FPR32:$fd), (ins FPR32:$fs), "fsi2s\t$fd, $fs", []>;
 def FUI2S : FP2r<0x23c0, (outs FPR32:$fd), (ins FPR32:$fs), "fui2s\t$fd, $fs", []>;
+//===----------------------------------------------------------------------===//
+// System registers: mfsr/mtsr.
+//
+// NOT the floating-point fmfsr/fmtsr below — different opcode entirely. Both
+// take a named system register whose 15-bit SRIDX is the register's HWEncoding
+// (see NDS32SysRegs.td, generated from binutils ground truth). hasSideEffects
+// keeps them from being reordered or dropped: writing $psw / a breakpoint
+// register is exactly the observable effect wanted.
+//
+// Used from `rom-rs` inline asm (subsystems/blob_romcall_a.rs reconstructs the
+// stock sysreg-write ladder), so the asm parser must accept every name.
+//===----------------------------------------------------------------------===//
+let hasSideEffects = 1 in {
+def MFSR : NDS32Inst<(outs GPR:$rt), (ins SR:$sr), "mfsr\t$rt, $sr", []> {
+  bits<5> rt;
+  bits<15> sr;
+  let Inst{31-25} = 0x32;
+  let Inst{24-20} = rt;
+  let Inst{19-5} = sr;
+  let Inst{4-0} = 2;
+}
+def MTSR : NDS32Inst<(outs), (ins GPR:$rt, SR:$sr), "mtsr\t$rt, $sr", []> {
+  bits<5> rt;
+  bits<15> sr;
+  let Inst{31-25} = 0x32;
+  let Inst{24-20} = rt;
+  let Inst{19-5} = sr;
+  let Inst{4-0} = 3;
+}
+}
+
 def FMFSR : NDS32Inst<(outs GPR:$rt), (ins FPR32:$fs), "fmfsr\t$rt, $fs", []> {
   bits<5> rt;
   bits<5> fs;

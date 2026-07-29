@@ -51,9 +51,14 @@ define i32 @msub(i32 %a, i32 %b, i32 %c) {
   ret i32 %r
 }
 
-; AND with a constant whose complement fits 15 bits clears low bits via bitci.
+; AND with a constant whose complement fits 15 bits clears low bits via bitci --
+; but ONLY from V3 up. This file runs without -mcpu, i.e. "generic" == V2, where
+; bitci is illegal and traps, so the expected lowering here is movi+and. Both
+; directions are asserted in bitci-v3-only.ll.
 ; CHECK-LABEL: bitclear:
-; CHECK: bitci $r{{[0-9]+}}, $r{{[0-9]+}}, 255
+; CHECK: movi $r{{[0-9]+}}, -256
+; CHECK: and $r{{[0-9]+}}, $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-NOT: bitci
 define i32 @bitclear(i32 %x) {
   %r = and i32 %x, 4294967040 ; ~0xff
   ret i32 %r

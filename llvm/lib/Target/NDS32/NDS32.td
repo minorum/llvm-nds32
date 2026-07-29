@@ -1,3 +1,11 @@
+//===-- NDS32.td - Describe the NDS32 target machine -------*- tablegen -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 include "llvm/Target/Target.td"
 
 //===----------------------------------------------------------------------===//
@@ -12,6 +20,7 @@ def FeatureV2 : SubtargetFeature<"v2", "HasV2Ops", "true",
 def FeatureV3 : SubtargetFeature<"v3", "HasV3Ops", "true",
                   "Support the NDS32 AndeStar V3 instruction set",
                   [FeatureV2]>;
+def HasV3Ops : Predicate<"Subtarget->hasV3Ops()">;
 def FeatureFPU : SubtargetFeature<"fpu", "HasFPU", "true",
                   "Support the single-precision hardware FPU (AndeStar V3f)",
                   [FeatureV3]>;
@@ -23,6 +32,27 @@ def HasFPU : Predicate<"Subtarget->hasFPU()">;
 def FeatureHardFloatABI : SubtargetFeature<"hard-float-abi", "HasHardFloatABI",
                   "true", "Pass single-precision floats in FP registers "
                   "(Andes 2fp+ hard-float ABI)", [FeatureFPU]>;
+
+//===----------------------------------------------------------------------===//
+// Core-configuration features (orthogonal to the ISA version). Both describe
+// how a *specific* core is built rather than which ISA it implements, so they
+// are plain opt-ins with no implied ISA level.
+//
+// The MT6785 conn-MCU needs both — see nds32be-conn-mcu.json, and
+// mt6785-connsys-firmware/docs/07-environment-setup.md for why their absence
+// silently produced faulting code.
+//===----------------------------------------------------------------------===//
+
+// Andes "reduced register" core configuration (as GCC's -mreduced-regs): only
+// r0-r10, r15 and r28-r31 exist. Allocating r11-r14 or r16-r27 produces code
+// that faults on such a core.
+def FeatureReducedRegs : SubtargetFeature<"reduced-regs", "HasReducedRegs",
+                  "true", "Only the Andes reduced register set is implemented "
+                  "(r0-r10, r15, r28-r31)">;
+
+// Suppress the 16-bit (compressed) instruction forms.
+def FeatureNo16Bit : SubtargetFeature<"no-16bit", "HasNo16Bit", "true",
+                  "Do not emit 16-bit (compressed) instruction forms">;
 
 include "NDS32RegisterInfo.td"
 include "NDS32InstrInfo.td"

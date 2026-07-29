@@ -38,6 +38,10 @@ class NDS32Subtarget : public NDS32GenSubtargetInfo {
   // (Andes 2fp+ ABI). Opt-in on top of the FPU ISA, mirroring GCC's separation
   // of -mext-fpu-sp (ISA) from -mfloat-abi=hard (ABI).
   bool HasHardFloatABI = false;
+  // Core-configuration features (see NDS32.td): a reduced-register core has no
+  // r11-r14/r16-r27, and HasNo16Bit suppresses the compressed forms.
+  bool HasReducedRegs = false;
+  bool HasNo16Bit = false;
 
   NDS32InstrInfo InstrInfo;
   NDS32TargetLowering TLInfo;
@@ -57,6 +61,10 @@ public:
   bool hasV3Ops() const { return HasV3Ops; }
   bool hasFPU() const { return HasFPU; }
   bool hasHardFloatABI() const { return HasHardFloatABI; }
+  bool hasReducedRegs() const { return HasReducedRegs; }
+  // Note the inversion: the feature is opt-out ("no-16bit"), so the query is
+  // "may I emit compressed forms?".
+  bool has16Bit() const { return !HasNo16Bit; }
 
   const TargetFrameLowering *getFrameLowering() const override {
     return &FrameLowering;

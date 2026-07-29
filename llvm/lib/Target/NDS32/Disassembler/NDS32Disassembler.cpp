@@ -10,8 +10,10 @@
 #include "TargetInfo/NDS32TargetInfo.h"
 #include "llvm/MC/MCDecoder.h"
 #include "llvm/MC/MCDecoderOps.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/MathExtras.h"
@@ -78,6 +80,27 @@ static DecodeStatus DecodeFPR32RegisterClass(MCInst &Inst, unsigned RegNo,
     return MCDisassembler::Fail;
   Inst.addOperand(MCOperand::createReg(FPR32Table[RegNo]));
   return MCDisassembler::Success;
+}
+
+// System registers (mfsr/mtsr). Unlike GPR/FPR32 these cannot use a flat table:
+// the operand is a 15-bit SRIDX whose assigned values are sparse (~136 of
+// 32768), so look the encoding up in the SR register class instead. An
+// unassigned SRIDX must Fail rather than decode to some wrong name -- the point
+// of this disassembler is firmware RE, where a plausible-but-wrong mnemonic is
+// worse than a refusal.
+static DecodeStatus DecodeSRRegisterClass(MCInst &Inst, unsigned RegNo,
+                                          uint64_t Address,
+                                          const MCDisassembler *Decoder) {
+  const MCRegisterInfo *MRI = Decoder->getContext().getRegisterInfo();
+  const MCRegisterClass &RC = MRI->getRegClass(NDS32::SRRegClassID);
+  for (unsigned I = 0, E = RC.getNumRegs(); I != E; ++I) {
+    MCRegister Reg = RC.getRegister(I);
+    if (MRI->getEncodingValue(Reg) == RegNo) {
+      Inst.addOperand(MCOperand::createReg(Reg));
+      return MCDisassembler::Success;
+    }
+  }
+  return MCDisassembler::Fail;
 }
 
 // Add a PC-relative branch/call target. If a symbolizer is installed (as
