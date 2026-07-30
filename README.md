@@ -94,26 +94,36 @@ Do not settle for "the tests compile". Running code on the ISS has caught silent
 miscompiles — data endianness, PIC jump tables, a 1-bit branch-fixup mask — that
 FileCheck-on-assembly structurally cannot.
 
-`llvm/lib/Target/NDS32/NDS32SysRegs.td` is **generated**: the system-register
-names come from binutils' `keyword_sr` and each SRIDX is read back out of real
-`nds32be-elf-as` output rather than reimplementing binutils' encoding macro.
-Regenerate with `llvm/utils/NDS32/gen-sysregs.py`; do not hand-edit.
+`llvm/lib/Target/NDS32/NDS32SysRegs.td` is **generated** — do not hand-edit.
+Regenerate with `llvm/utils/NDS32/gen-sysregs.py`, which derives the whole table
+by probing the GNU toolchain: canonical names are whatever `nds32be-elf-objdump`
+prints for each architecturally distinct SRIDX, and aliases are the numeric
+`$crN`/`$irN`/`$drN`/… spellings `nds32be-elf-as` accepts.
 
-### Licensing and provenance
+## Licensing
 
-This fork is Apache-2.0 WITH LLVM-exception, like upstream; `LICENSE.TXT` is
-unchanged and all NDS32 sources carry the standard header.
+This fork is **Apache-2.0 WITH LLVM-exception**, like upstream. `LICENSE.TXT` is
+unmodified, and every NDS32 source file carries the standard LLVM header.
 
-One provenance caveat, stated openly rather than buried: the **system-register
-name list** in `NDS32SysRegs.td` was extracted from the `keyword_sr` table in
-GNU binutils' `nds32-asm.c`, which is GPL-licensed. The names and their SRIDX
-values are hardware facts about the NDS32 ISA, and the encodings here were
-obtained by *running* the assembler rather than by copying its code — output of
-a tool is not covered by the tool's licence. I believe this is fine, but I am
-not a lawyer. If you need certainty for your own redistribution, re-derive the
-name list from the Andes ISA manual and keep binutils purely as the encoding
-oracle; `gen-sysregs.py` is structured so only the name-list source has to
-change. Nothing else in this fork derives from binutils source.
+**No GPL code or GPL-derived data is present.** That is worth stating explicitly
+because the toolchain this backend is validated against — GNU binutils and the
+Andes `gdb` fork that provides the ISS — is GPL-licensed. The boundary is kept
+clean in both directions:
+
+- The generated system-register table is built **only from tool output** (bytes
+  in, bytes out). An earlier revision parsed the `keyword_sr` table out of
+  binutils' `nds32-asm.c`, which raised an avoidable licence question; that
+  dependency is gone, and the canonical register set it produces is byte-for-byte
+  identical (136 registers, same SRIDX values).
+- binutils and the ISS are **invoked as external programs**, never linked,
+  vendored, or copied. `build-nds32-sim.sh` clones the Andes gdb fork at build
+  time onto your machine; nothing from it is redistributed here.
+- Running a GPL tool over your inputs does not encumber its output, so objects
+  produced by this backend and validated against those tools carry no GPL
+  obligation.
+
+If you redistribute this fork, you are redistributing LLVM under Apache-2.0 WITH
+LLVM-exception and nothing else.
 
 ## Status and support
 

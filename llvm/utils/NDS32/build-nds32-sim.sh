@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ===----------------------------------------------------------------------===##
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# ===----------------------------------------------------------------------===##
 # Build the Andes nds32 instruction-set simulator (`nds32be-elf-run`).
 #
 # Upstream GNU `sim` never had an nds32 target, and current Andes forks are

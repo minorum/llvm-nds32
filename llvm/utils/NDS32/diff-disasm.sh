@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ===----------------------------------------------------------------------===##
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# ===----------------------------------------------------------------------===##
 # diff-disasm.sh — differential disassembly: LLVM vs Andes binutils ground truth.
 #
 # Runs both disassemblers over the same object/ELF .text and reports, per

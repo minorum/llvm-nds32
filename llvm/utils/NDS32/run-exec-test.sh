@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ===----------------------------------------------------------------------===##
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# ===----------------------------------------------------------------------===##
 # End-to-end EXECUTION test: compile functions with OUR llc backend, call them
 # from an Andes-gcc `main`, link with newlib, and run on the nds32 sim. This is
 # the only check that verifies the backend's output actually RUNS correctly

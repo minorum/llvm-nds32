@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ===----------------------------------------------------------------------===##
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# ===----------------------------------------------------------------------===##
 # End-to-end EXECUTION test of the HARD-FLOAT ABI (Andes 2fp+): our llc compiles
 # ours_hf.ll with -mcpu=v3f-hard (single-precision floats in $fs registers), an
 # Andes-gcc hard-float main calls those functions across the real ABI, and the
