@@ -888,6 +888,16 @@ def JRAL5 : NDS32Inst16<(outs), (ins GPR:$rb), "jral5\t$rb"> {
   let Inst{15-5} = 0x6e9; let Inst{4-0} = rb;
 }
 
+// 32-bit iret: op6=0x32, sub [4:0]=0x04. Exception return -- restores $psw from
+// $ipsw and jumps to $ipc atomically. Needed to write a context switch (the
+// saved context replaces the current one, so this is not a `ret`); the
+// disassembler previously rejected 64 00 00 04 because nothing defined it.
+let isTerminator = 1, isBarrier = 1, isReturn = 1, hasSideEffects = 1 in
+def IRET : NDS32Inst<(outs), (ins), "iret", []> {
+  let Inst{31-25} = 0x32; let Inst{24-20} = 0;
+  let Inst{19-5} = 0;     let Inst{4-0} = 0x04;
+}
+
 // 32-bit syscall: op6=0x32, 15-bit service id [19:5], sub [4:0]=0x0b.
 def SYSCALL : NDS32Inst<(outs), (ins i32imm:$swid), "syscall\t$swid", []> {
   bits<15> swid;
