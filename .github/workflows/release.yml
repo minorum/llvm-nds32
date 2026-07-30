@@ -1,0 +1,113 @@
+name: Release
+
+# Most people will not build LLVM for an hour just to try a backend for a legacy
+# architecture. Tagging `nds32-v22.1.0-N` publishes ready-to-run binaries so
+# trying it costs a download instead of an afternoon.
+
+on:
+  push:
+    tags: ["nds32-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and attach the release to"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    name: Build and publish (Linux x86-64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: nds32-release-${{ runner.os }}
+          max-size: 2G
+
+      # Assertions OFF for a distributed build: users want it fast, and the
+      # assertion build is for development. X86 is included so the same tree can
+      # host a rustc link; NDS32 is the point.
+      - name: Configure
+        run: |
+          cmake -S llvm -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_TARGETS_TO_BUILD=X86 \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=NDS32 \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: ninja -C build llc llvm-mc llvm-objdump llvm-config
+
+      - name: Package
+        id: package
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          DIR="llvm-nds32-${TAG}-linux-x86_64"
+          mkdir -p "$DIR/bin"
+          for t in llc llvm-mc llvm-objdump llvm-config; do
+            cp "build/bin/$t" "$DIR/bin/"
+            strip "$DIR/bin/$t" || true
+          done
+          cp LICENSE.TXT "$DIR/"
+          cat > "$DIR/README" <<EOF
+          llvm-nds32 ${TAG} -- LLVM with an Andes NDS32 (AndeStar) backend.
+          Linux x86-64. Targets built: X86 (host) + NDS32 (experimental).
+          Assertions off. Apache-2.0 WITH LLVM-exception; see LICENSE.TXT.
+
+          Quick check:
+            ./bin/llc -mtriple=nds32be-unknown-none-elf -mcpu=v2 in.ll -o out.s
+
+          The MT6785 conn-MCU needs: -mcpu=v2 -mattr=+reduced-regs,+no-16bit
+          https://github.com/minorum/llvm-nds32
+          EOF
+          tar -cJf "${DIR}.tar.xz" "$DIR"
+          sha256sum "${DIR}.tar.xz" > "${DIR}.tar.xz.sha256"
+          echo "artifact=${DIR}.tar.xz" >> "$GITHUB_OUTPUT"
+
+      # Prove the tarball actually runs before publishing it.
+      - name: Smoke-test the packaged binaries
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          DIR="llvm-nds32-${TAG}-linux-x86_64"
+          printf 'define i32 @f(i32 %%a) {\n  %%r = and i32 %%a, -8714\n  ret i32 %%r\n}\n' > t.ll
+          "$DIR/bin/llc" -mtriple=nds32be-unknown-none-elf -mcpu=v2 \
+            -mattr=+reduced-regs,+no-16bit t.ll -o t.s
+          grep -q 'movi' t.s && ! grep -q 'bitci' t.s
+          echo "packaged llc lowers x & ~MASK without bitci on v2 -- OK"
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            ${{ steps.package.outputs.artifact }}
+            ${{ steps.package.outputs.artifact }}.sha256
+          body: |
+            LLVM with an Andes NDS32 backend, built from this tag.
+
+            **`llvm-nds32-<tag>-linux-x86_64.tar.xz`** contains `llc`, `llvm-mc`,
+            `llvm-objdump` and `llvm-config` for Linux x86-64 (assertions off).
+
+            For the MT6785 conn-MCU, pass
+            `-mcpu=v2 -mattr=+reduced-regs,+no-16bit`; omitting those produces
+            code that faults on that core.
+
+            Apache-2.0 WITH LLVM-exception.
