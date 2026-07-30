@@ -11,6 +11,27 @@ exists to compile Rust `no_std` firmware for an NDS32 coprocessor.
 - LLVM 22 was chosen to match rustc-nightly's bundled LLVM, so rustc's IR parses
   and lowers directly.
 
+## Developed with AI assistance
+
+This backend is written largely with AI assistance (Anthropic's Claude), under
+human direction and review. That is stated plainly because it should inform how
+you read the code: treat it as you would any unfamiliar contributor's work, and
+lean on the checks rather than on authorship.
+
+The project's answer to "how do you trust it?" is that nothing here is accepted
+on the basis of looking plausible:
+
+- Instruction encodings are **differentially tested against the Andes
+  `nds32be-elf` binutils**, byte for byte, not hand-derived. The system-register
+  table is generated from binutils rather than transcribed (273 spellings, both
+  mnemonics, plus a disassembly round-trip).
+- Compiled code is **executed on the Andes nds32 ISS**, which has caught silent
+  miscompiles that exact-output FileCheck structurally cannot.
+- Behaviour changes land with a focused CodeGen or MC test.
+
+Where a claim in this README is not backed by one of those, it is a claim about
+intent, not evidence.
+
 ## What's implemented
 
 Full ABI, frame pointer + alloca, varargs, register-offset and post-increment
