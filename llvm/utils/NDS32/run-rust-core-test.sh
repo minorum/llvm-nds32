@@ -18,6 +18,7 @@
 #
 # Prereqs: rust nightly + rust-src (-Zbuild-std), the sim (scripts/build-nds32-sim.sh).
 set -euo pipefail
+CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CRATE="$HERE/exec-test/rust"
 TARGET_JSON="$HERE/../nds32be-unknown-none.json"
@@ -28,7 +29,7 @@ RUN=${RUN:-/home/dministrator/nds32be-build/nds32-gdb-sim/build-sim/sim/nds32/ru
 
 cp "$TARGET_JSON" "$CRATE/nds32be-unknown-none.json"
 cd "$CRATE"
-RUSTFLAGS="--emit=llvm-ir -C panic=abort" cargo +nightly build \
+RUSTFLAGS="--emit=llvm-ir -C panic=abort" "$CARGO" +nightly build \
   -Z build-std=core -Z json-target-spec \
   --target nds32be-unknown-none.json --release >/dev/null 2>&1
 
