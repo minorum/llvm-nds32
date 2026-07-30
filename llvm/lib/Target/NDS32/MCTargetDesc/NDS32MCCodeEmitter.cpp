@@ -122,6 +122,17 @@ public:
            "register not encodable in add45/addi45 4-bit field");
     return Hw <= 11 ? Hw : Hw - 4;
   }
+  // gp-relative lwi.gp/swi.gp: signed 17-bit WORD offset in Inst[16:0]. The
+  // operand carries a byte displacement (matching what decodeOff17Words prints),
+  // so scale it here; the two directions would otherwise disagree by four.
+  unsigned encodeOff17Words(const MCInst &MI, unsigned OpNo,
+                            SmallVectorImpl<MCFixup> &Fixups,
+                            const MCSubtargetInfo &STI) const {
+    int64_t Byte = MI.getOperand(OpNo).getImm();
+    assert(Byte % 4 == 0 && "gp-relative word offset must be 4-byte aligned");
+    assert(isInt<17>(Byte / 4) && "gp-relative offset out of 17-bit word range");
+    return static_cast<uint32_t>(Byte >> 2) & 0x1ffff;
+  }
   // 16-bit lwi333/swi333: 3-bit word offset.
   unsigned encodeOff3Words(const MCInst &MI, unsigned OpNo,
                            SmallVectorImpl<MCFixup> &Fixups,

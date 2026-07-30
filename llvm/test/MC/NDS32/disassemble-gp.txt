@@ -1,0 +1,21 @@
+# RUN: llvm-mc -triple=nds32be-unknown-none-elf -disassemble %s | FileCheck %s
+
+# gp-relative load/store decoding. The instruction field is a signed 17-bit WORD
+# displacement; the printed operand is the BYTE displacement.
+#
+# The first line is taken byte-for-byte from the MT6785 conn-MCU mask ROM, where
+# 0x2610 stores the OS-ready flag as `swi.gp $r1, [+ -211816]`. Decoding it back
+# to that displacement is what pins the scaling.
+#
+# NOTE: the AsmParser has no syntax for the `[+ disp]` operand, so these forms
+# are decode-and-emit only (the compiler emits them; there is no text-assembly
+# round trip). Adding parser support would be a separate change.
+
+# CHECK: swi.gp $r1, [+ -211816]
+0x3c 0x1f 0x31 0x26
+
+# CHECK: lwi.gp $r0, [+ -189564]
+0x3c 0x0d 0x46 0xe1
+
+# CHECK: swi.gp $r0, [+ 0]
+0x3c 0x0e 0x00 0x00

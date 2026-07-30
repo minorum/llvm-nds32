@@ -271,6 +271,8 @@ def memrr : Operand<i32> {
   let ParserMatchClass = MemRRAsmOperand;
 }
 def regoaddr : ComplexPattern<iPTR, 3, "selectRegOffsetAddr", []>;
+// Absolute address reachable from the ROM-fixed $gp (see -nds32-gp-base).
+def gpaddr : ComplexPattern<iPTR, 1, "selectGpAddr", []>;
 
 // Post-increment byte increment, scaled to element units by the EncoderMethod.
 def postimm_b : Operand<i32> {
@@ -303,7 +305,13 @@ def simm10op : Operand<i32> { let DecoderMethod = "decodeSImm10"; }   // addi10.
 def movpiimm : Operand<i32> { let DecoderMethod = "decodeMovpi"; }    // movpi45 (+16 bias)
 def gpreven : RegisterOperand<GPR> { let DecoderMethod = "decodeEvenGPR"; } // movd44
 def simm11op : Operand<i32> { let DecoderMethod = "decodeSImm11"; }   // beqc/bnec
-def off17w   : Operand<i32> { let DecoderMethod = "decodeOff17Words"; } // lwi.gp/swi.gp
+def off17w   : Operand<i32> {                                          // lwi.gp/swi.gp
+  let DecoderMethod = "decodeOff17Words";
+  // The operand carries a BYTE displacement (what the disassembler prints);
+  // the field holds it scaled to words. Without this the two directions
+  // disagree by a factor of four.
+  let EncoderMethod = "encodeOff17Words";
+}
 def off17b   : Operand<i32> { let DecoderMethod = "decodeOff17Byte"; }  // lbsi.gp
 // 8-bit PC-relative target (x2) for the 32-bit beqc/bnec (same decode as the
 // 16-bit short-branch displacement).
@@ -922,6 +930,17 @@ def LWI_GP : GpF<6, (outs GPR:$rt), (ins off17w:$off), "lwi.gp\t$rt, [+ $off]"> 
 }
 def SWI_GP : GpF<7, (outs), (ins GPR:$rt, off17w:$off), "swi.gp\t$rt, [+ $off]"> {
   let mayStore = 1;
+}
+
+// Absolute loads/stores through the fixed $gp. Only selected when
+// -nds32-gp-base names the runtime $gp and the address is in range and
+// word-aligned (selectGpAddr enforces both); otherwise the generic
+// sethi/ori + [reg + 0] path applies unchanged.
+// AddedComplexity beats LWI/SWI's own `addr` patterns, which match any address
+// and would otherwise always win.
+let AddedComplexity = 20 in {
+def : Pat<(i32 (load gpaddr:$off)), (LWI_GP off17w:$off)>;
+def : Pat<(store GPR:$rt, gpaddr:$off), (SWI_GP GPR:$rt, off17w:$off)>;
 }
 
 // 32-bit ALU2 group (op6=0x21): 3-register max/min and bit set/clear/test.

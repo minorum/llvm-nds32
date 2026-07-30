@@ -13,12 +13,34 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/IR/InlineAsm.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "nds32-isel"
 #define PASS_NAME "NDS32 DAG->DAG Pattern Instruction Selection"
+
+// Runtime value of $gp, enabling gp-relative addressing of absolute addresses.
+//
+// NDS32 reaches a small data area as `lwi.gp/swi.gp $rt, [+ disp]` -- one
+// instruction, no base register to materialize and therefore nothing the
+// register allocator can spill. Firmware that runs with a $gp fixed by its
+// boot ROM (rather than by our own prologue) can use that form for any
+// absolute address in range, exactly as the vendor code does.
+//
+// This matters beyond code size. Without it, a constant address is built with
+// sethi+ori into a virtual register, and under pressure LLVM commons that base
+// across nearby accesses and spills it to the frame. A callee that does not
+// preserve the frame -- a ROM routine that switches stacks, say -- then makes
+// the reload garbage and the store lands on a wild address. Addressing off the
+// reserved $gp removes the base register, and with it that whole failure mode.
+//
+// Off (0) by default: with no fixed $gp the transform would be unsound.
+static cl::opt<uint64_t> NDS32GpBase(
+    "nds32-gp-base", cl::Hidden, cl::init(0),
+    cl::desc("Runtime value of $gp; enables gp-relative addressing of "
+             "absolute addresses within reach of it (0 = disabled)"));
 
 namespace {
 class NDS32DAGToDAGISel : public SelectionDAGISel {
@@ -38,6 +60,7 @@ public:
   bool selectMemAddr(SDValue Addr, SDValue &Base, SDValue &Offset);
   bool selectRegOffsetAddr(SDValue Addr, SDValue &Base, SDValue &Index,
                            SDValue &Scale);
+  bool selectGpAddr(SDValue Addr, SDValue &Offset);
 
   // Lower an inline-asm "m"/"o" memory operand into the backend's native
   // base+offset addressing pair, reusing selectMemAddr. The two operands are
@@ -82,6 +105,37 @@ public:
 #include "NDS32GenDAGISel.inc"
 };
 } // end anonymous namespace
+
+// Match an absolute address that $gp can reach, yielding the byte displacement
+// for lwi.gp/swi.gp.
+//
+// The instruction encodes a signed 17-bit WORD offset, so the reachable span is
+// gp +/- 256 KiB and the displacement must be 4-byte aligned. Both are checked
+// here rather than in the pattern, so an out-of-range or misaligned address
+// simply falls back to the ordinary sethi/ori + load form instead of silently
+// truncating -- the same range-gating discipline the immediate forms use.
+bool NDS32DAGToDAGISel::selectGpAddr(SDValue Addr, SDValue &Offset) {
+  if (NDS32GpBase == 0)
+    return false;
+
+  auto *C = dyn_cast<ConstantSDNode>(Addr);
+  if (!C)
+    return false;
+
+  // Wrap-safe signed displacement from $gp.
+  int64_t Disp = static_cast<int64_t>(C->getZExtValue()) -
+                 static_cast<int64_t>(NDS32GpBase);
+  if (Disp % 4 != 0)
+    return false;
+  int64_t Words = Disp / 4;
+  if (!isInt<17>(Words))
+    return false;
+
+  // Signed: the displacement is normally negative (globals below $gp), and the
+  // unsigned form asserts on anything with the high bit set.
+  Offset = CurDAG->getSignedTargetConstant(Disp, SDLoc(Addr), MVT::i32);
+  return true;
+}
 
 bool NDS32DAGToDAGISel::selectMemAddr(SDValue Addr, SDValue &Base,
                                       SDValue &Offset) {
