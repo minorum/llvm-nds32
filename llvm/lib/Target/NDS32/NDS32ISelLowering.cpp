@@ -81,6 +81,16 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
     setIndexedLoadAction(ISD::POST_INC, VT, Legal);
     setIndexedStoreAction(ISD::POST_INC, VT, Legal);
   }
+  // There is no 1-bit load: promote i1 loads to i8 so they become `lbi`. An
+  // in-memory i1 is a byte holding 0 or 1, which is exactly what a byte load
+  // returns. Without this a plain `static mut FLAG: bool` fails to select
+  // ("Cannot select: load (s8), zext from i1") — ordinary Rust, so the gap is
+  // reachable from any firmware that keeps a boolean in a global.
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::i1, Promote);
+    setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::i1, Promote);
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
+  }
   // No instruction sign-extends a 1-bit value; expand to shl+ashr by 31.
   // (i8/i16 are handled by seb/seh patterns.) Surfaced compiling
   // compiler_builtins, which sign-extends a boolean NOT result.
