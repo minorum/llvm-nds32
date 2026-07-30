@@ -14,10 +14,23 @@
 # supports newlib/libgloss semihosting (exit/read/write syscalls) — enough to
 # run a bare-metal ELF and read its exit code.
 #
-# Output: $DEST/sim/nds32/run   (invoke as: run prog.elf ; echo $?)
+# Output: $DEST/build-sim/sim/nds32/run   (invoke as: run prog.elf ; echo $?)
+#
+# Destination, in order: the first argument; else the tree implied by $SIM (the
+# nds32-llvm workspace exports it, so a rebuild lands where everything already
+# looks for it); else ./nds32-gdb-sim under the current directory. No developer's
+# layout is assumed -- pass an argument to put it anywhere.
 set -euo pipefail
 
-DEST=${1:-/home/dministrator/nds32be-build/nds32-gdb-sim}
+if [ -n "${1:-}" ]; then
+  DEST=$1
+elif [ -n "${SIM:-}" ]; then
+  DEST=${SIM%/build-sim/sim/nds32/run}
+  [ "$DEST" != "$SIM" ] || DEST=$PWD/nds32-gdb-sim
+else
+  DEST=$PWD/nds32-gdb-sim
+fi
+echo "Building into: $DEST"
 BRANCH=ast-v3_2_5-release-v3   # AndeStar V3 = nds32
 
 if [ ! -d "$DEST" ]; then

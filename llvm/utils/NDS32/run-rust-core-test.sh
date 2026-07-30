@@ -8,7 +8,7 @@
 # ===----------------------------------------------------------------------===##
 # End-to-end test of REAL Rust `core` code on the nds32 sim.
 #
-# rustc has no nds32 target, so the project's nds32be-unknown-none.json is a
+# rustc has no nds32 target, so rust-targets/nds32be-unknown-none.json is a
 # MIPS impostor (arch=mips, big-endian, soft-float) — rustc emits MIPS-flavored
 # LLVM IR that OUR llc retargets to nds32. This builds a small no_std crate whose
 # C-ABI functions exercise core (count_ones/leading_zeros/swap_bytes/rotate_left,
@@ -16,16 +16,15 @@
 # emitted IR with our llc, links it with an Andes-gcc main + newlib, and runs it
 # on the sim. Proves the full pipeline: rustc -> our backend -> object -> run.
 #
-# Prereqs: rust nightly + rust-src (-Zbuild-std), the sim (scripts/build-nds32-sim.sh).
+# Prereqs: rust nightly + rust-src (-Zbuild-std), the sim (build-nds32-sim.sh).
 set -euo pipefail
-CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CRATE="$HERE/exec-test/rust"
-TARGET_JSON="$HERE/../nds32be-unknown-none.json"
+TARGET_JSON="$HERE/rust-targets/nds32be-unknown-none.json"
 
-LLC=${LLC:-$HERE/../llvm22/build/bin/llc}
-TC=${TC:-/home/dministrator/nds32be-build/toolchain/bin}
-RUN=${RUN:-/home/dministrator/nds32be-build/nds32-gdb-sim/build-sim/sim/nds32/run}
+# shellcheck source=./nds32-env.sh
+. "$HERE/nds32-env.sh"
+nds32_need_llc; nds32_need_tc nds32be-elf-gcc; nds32_need_run; nds32_need_cargo
 
 cp "$TARGET_JSON" "$CRATE/nds32be-unknown-none.json"
 cd "$CRATE"

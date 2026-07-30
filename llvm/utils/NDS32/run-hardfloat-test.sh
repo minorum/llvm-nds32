@@ -21,11 +21,12 @@
 #
 # Prereqs: build the sim once with scripts/build-nds32-sim.sh.
 set -euo pipefail
-cd "$(dirname "$0")/exec-test/hardfloat"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=./nds32-env.sh
+. "$HERE/nds32-env.sh"
+nds32_need_llc; nds32_need_tc nds32be-elf-gcc nds32be-elf-as; nds32_need_run
+cd "$HERE/exec-test/hardfloat"
 
-LLC=${LLC:-/home/dministrator/nds32-llvm/llvm22/build/bin/llc}
-TC=${TC:-/home/dministrator/nds32be-build/toolchain/bin}
-RUN=${RUN:-/home/dministrator/nds32be-build/nds32-gdb-sim/build-sim/sim/nds32/run}
 TRIPLE=nds32be-unknown-none-elf
 
 # 1. our functions, hard-float ABI
