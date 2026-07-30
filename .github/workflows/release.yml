@@ -1,7 +1,7 @@
 name: Release
 
 # Most people will not build LLVM for an hour just to try a backend for a legacy
-# architecture. Tagging `nds32-v22.1.0-N` publishes ready-to-run binaries so
+# architecture. Tagging `nds32-v<llvm-version>-N` publishes ready-to-run binaries so
 # trying it costs a download instead of an afternoon.
 
 on:

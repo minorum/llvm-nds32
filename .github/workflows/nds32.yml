@@ -3,15 +3,15 @@ name: NDS32
 # Upstream LLVM's 57 workflows were removed from this fork: they build clang,
 # libc++, flang and friends, none of which this fork touches, and several were
 # `schedule:`-triggered -- which run from the DEFAULT branch, so they started
-# firing here the moment nds32-v22.1.0 became default.
+# firing here the moment this branch became default.
 #
 # This is the only CI: build the NDS32 backend and run every check that gates it.
 
 on:
   push:
-    branches: [nds32-v22.1.0]
+    branches: [nds32]
   pull_request:
-    branches: [nds32-v22.1.0]
+    branches: [nds32]
   workflow_dispatch:
 
 concurrency:
@@ -115,7 +115,7 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ninja -C build llvm-mc llvm-objdump
 
-      # All 273 sysreg spellings, both mnemonics, byte-compared against the GNU
+      # All 266 sysreg spellings, both mnemonics, byte-compared against the GNU
       # assembler, plus a disassembly round-trip.
       - name: verify-sysregs
         run: |
