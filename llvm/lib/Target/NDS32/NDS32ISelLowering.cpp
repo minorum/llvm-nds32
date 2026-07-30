@@ -19,7 +19,22 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include "llvm/Support/CommandLine.h"
+
 using namespace llvm;
+
+/// Suppress jump-table formation, lowering switches to compare-and-branch
+/// chains instead.
+///
+/// For targets whose read-only data cannot be read back faithfully as 32-bit
+/// words -- see the comment at the `setMinimumJumpTableEntries` call below --
+/// an indirect branch through a compiler-emitted table is unsafe by
+/// construction. Everything else that goes wrong in that situation produces a
+/// wrong value; this produces a jump to an arbitrary address.
+static cl::opt<bool>
+    NDS32NoJumpTables("nds32-no-jump-tables", cl::Hidden, cl::init(false),
+                      cl::desc("NDS32: never form jump tables; lower switches "
+                               "to compare-and-branch chains"));
 
 NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
                                          const NDS32Subtarget &STI)
@@ -74,6 +89,19 @@ NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
   // to the JR instruction).
   setOperationAction(ISD::JumpTable, MVT::i32, Custom);
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
+  // ...unless the target cannot be trusted to read its own read-only data back
+  // as 32-bit words. On the MT6785 conn-MCU the EMI port byte-swaps 32-bit
+  // accesses: anything the core writes and later reads round-trips correctly
+  // (the swap cancels), but read-only data placed there by an external loader
+  // was never swapped, so a word load of it comes back byte-reversed. For most
+  // constants that is a wrong value; for a jump table it is an indirect branch
+  // to a byte-reversed pointer -- a wild jump, with $lp still holding the
+  // caller's return address, which is spectacularly hard to attribute. The
+  // vendor toolchain lowers the same switches to compare-and-branch chains and
+  // never hits this. Off by default: it is a property of the environment, not
+  // of NDS32.
+  if (NDS32NoJumpTables)
+    setMinimumJumpTableEntries(UINT_MAX);
   // Dynamic alloca: adjust $sp by the (aligned) size and return the new $sp.
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Custom);
   // Post-increment addressing for the integer load/store sizes (lwi.bi/swi.bi).
