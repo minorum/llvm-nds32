@@ -53,8 +53,15 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       # llvm-lit is generated at configure time, not a ninja target.
+      #
+      # llvm-config and llvm-readobj are not used by the NDS32 tests themselves,
+      # but lit's own setup shells out to `llvm-config --assertion-mode
+      # --build-mode` and dies without it. A dev tree usually has them left over
+      # from an earlier full build, which is exactly why this only showed up here.
       - name: Build
-        run: ninja -C build llc llvm-mc llvm-objdump FileCheck not count
+        run: |
+          ninja -C build llc llvm-mc llvm-objdump llvm-config llvm-readobj \
+                         FileCheck not count
 
       # The real lit suite -- exact-output FileCheck, not "it compiles".
       - name: lit (CodeGen/NDS32 + MC/NDS32)
