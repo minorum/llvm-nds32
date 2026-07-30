@@ -1,0 +1,123 @@
+name: NDS32
+
+# Upstream LLVM's 57 workflows were removed from this fork: they build clang,
+# libc++, flang and friends, none of which this fork touches, and several were
+# `schedule:`-triggered -- which run from the DEFAULT branch, so they started
+# firing here the moment nds32-v22.1.0 became default.
+#
+# This is the only CI: build the NDS32 backend and run every check that gates it.
+
+on:
+  push:
+    branches: [nds32-v22.1.0]
+  pull_request:
+    branches: [nds32-v22.1.0]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build NDS32 + run checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache
+
+      # A full LLVM build is ~1h. Only NDS32 is needed for llc/llvm-mc/
+      # llvm-objdump and the lit suite, which cuts it to a few minutes warm.
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: nds32-${{ runner.os }}
+          max-size: 2G
+
+      - name: Configure
+        run: |
+          cmake -S llvm -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_TARGETS_TO_BUILD= \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=NDS32 \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_INCLUDE_TESTS=ON \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      # llvm-lit is generated at configure time, not a ninja target.
+      - name: Build
+        run: ninja -C build llc llvm-mc llvm-objdump FileCheck not count
+
+      # The real lit suite -- exact-output FileCheck, not "it compiles".
+      - name: lit (CodeGen/NDS32 + MC/NDS32)
+        run: |
+          ./build/bin/llvm-lit -sv \
+            llvm/test/CodeGen/NDS32 \
+            llvm/test/MC/NDS32
+
+  sysregs:
+    name: Sysreg encodings vs binutils
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache texinfo
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: nds32-sysregs-${{ runner.os }}
+          max-size: 2G
+
+      # binutils is the ground truth for every instruction encoding, so the
+      # differential check needs a real nds32be-elf assembler. Upstream GNU
+      # binutils still carries the nds32 port; there is no prebuilt big-endian
+      # toolchain anywhere, so it is built here (~10 min, cached).
+      - name: Cache nds32be-elf binutils
+        id: binutils-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/nds32be-toolchain
+          key: binutils-2.45-nds32be-elf
+
+      - name: Build nds32be-elf binutils
+        if: steps.binutils-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sSLO https://ftp.gnu.org/gnu/binutils/binutils-2.45.tar.xz
+          tar xf binutils-2.45.tar.xz
+          mkdir build-binutils && cd build-binutils
+          ../binutils-2.45/configure --target=nds32be-elf \
+            --prefix=$HOME/nds32be-toolchain \
+            --disable-nls --disable-werror --disable-gdb --disable-sim \
+            --with-system-zlib
+          make -j"$(nproc)" && make install
+
+      - name: Configure + build llvm-mc/llvm-objdump
+        run: |
+          cmake -S llvm -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_TARGETS_TO_BUILD= \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=NDS32 \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ninja -C build llvm-mc llvm-objdump
+
+      # All 273 sysreg spellings, both mnemonics, byte-compared against the GNU
+      # assembler, plus a disassembly round-trip.
+      - name: verify-sysregs
+        run: |
+          TC=$HOME/nds32be-toolchain/bin LLVM_BIN=$PWD/build/bin \
+            python3 llvm/utils/NDS32/verify-sysregs.py

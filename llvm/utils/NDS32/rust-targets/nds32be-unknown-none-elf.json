@@ -1,0 +1,22 @@
+{
+  "arch": "nds32",
+  "cpu": "generic",
+  "data-layout": "E-m:e-p:32:32-i64:64-n32-S32",
+  "eh-frame-header": false,
+  "emit-debug-gdb-scripts": false,
+  "executables": true,
+  "features": "",
+  "linker": "/home/dministrator/nds32be-build/toolchain/bin/nds32be-elf-gcc",
+  "linker-flavor": "gnu-cc",
+  "llvm-target": "nds32be-unknown-none-elf",
+  "max-atomic-width": 32,
+  "atomic-cas": true,
+  "os": "none",
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "singlethread": true,
+  "target-endian": "big",
+  "target-pointer-width": 32,
+  "target-c-int-width": 32,
+  "vendor": "unknown"
+}

@@ -64,8 +64,9 @@ cmake -S llvm -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_TARGETS_TO_BUILD=X86 \
   -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=NDS32 \
-  -DLLVM_ENABLE_ASSERTIONS=ON
-ninja -C build llc llvm-mc llvm-objdump
+  -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DLLVM_INCLUDE_TESTS=ON
+ninja -C build llc llvm-mc llvm-objdump FileCheck not count
 ```
 
 NDS32 is an *experimental* target, so `LLVM_EXPERIMENTAL_TARGETS_TO_BUILD` is
@@ -74,15 +75,19 @@ to link a host rustc against this build.
 
 ## Testing
 
-The build above sets no `LLVM_INCLUDE_TESTS`, and the downstream configuration
-disables it, so `llvm-lit` may not discover the suite. The companion repo
-[minorum/nds32-llvm](https://github.com/minorum/nds32-llvm) carries a small lit
-replacement plus the execution suites:
+Configure with `-DLLVM_INCLUDE_TESTS=ON` (as above) and the suite runs under
+real `llvm-lit`. Everything needed lives in this repository:
 
 ```sh
-bash scripts/run-nds32-tests.sh    # CodeGen + MC, exact-output FileCheck; invariant FAIL=0
-python3 scripts/verify-sysregs.py  # every sysreg spelling byte-compared against binutils
-bash scripts/run-exec-test.sh      # compiled code actually RUN on the Andes nds32 ISS
+# CodeGen + MC, exact-output FileCheck -- the standard LLVM workflow
+./build/bin/llvm-lit -sv llvm/test/CodeGen/NDS32 llvm/test/MC/NDS32
+
+# every sysreg spelling byte-compared against the GNU assembler
+python3 llvm/utils/NDS32/verify-sysregs.py
+
+# compiled code actually RUN on the Andes nds32 ISS
+bash llvm/utils/NDS32/build-nds32-sim.sh   # once
+bash llvm/utils/NDS32/run-exec-test.sh
 ```
 
 Do not settle for "the tests compile". Running code on the ISS has caught silent
@@ -92,7 +97,67 @@ FileCheck-on-assembly structurally cannot.
 `llvm/lib/Target/NDS32/NDS32SysRegs.td` is **generated**: the system-register
 names come from binutils' `keyword_sr` and each SRIDX is read back out of real
 `nds32be-elf-as` output rather than reimplementing binutils' encoding macro.
-Regenerate it with `scripts/gen-sysregs.py`; do not hand-edit.
+Regenerate with `llvm/utils/NDS32/gen-sysregs.py`; do not hand-edit.
+
+### Licensing and provenance
+
+This fork is Apache-2.0 WITH LLVM-exception, like upstream; `LICENSE.TXT` is
+unchanged and all NDS32 sources carry the standard header.
+
+One provenance caveat, stated openly rather than buried: the **system-register
+name list** in `NDS32SysRegs.td` was extracted from the `keyword_sr` table in
+GNU binutils' `nds32-asm.c`, which is GPL-licensed. The names and their SRIDX
+values are hardware facts about the NDS32 ISA, and the encodings here were
+obtained by *running* the assembler rather than by copying its code — output of
+a tool is not covered by the tool's licence. I believe this is fine, but I am
+not a lawyer. If you need certainty for your own redistribution, re-derive the
+name list from the Andes ISA manual and keep binutils purely as the encoding
+oracle; `gen-sysregs.py` is structured so only the name-list source has to
+change. Nothing else in this fork derives from binutils source.
+
+## Status and support
+
+**Working, and used in anger** — this backend compiles the firmware in the
+consumer project below, which runs on real MT6785 hardware. It is not a
+research toy. It is also **not** an upstream LLVM target and never will be:
+NDS32 is legacy (Andes moved to RISC-V), so a fork is the permanent end state,
+not a staging area.
+
+Honest support expectations, so nobody is disappointed:
+
+- This is a **personal project maintained by one person**, best-effort, with no
+  SLA. Issues and patches are welcome; replies may be slow or absent, and I may
+  decline scope that I can't test.
+- I only test **big-endian `nds32be-unknown-none-elf` on Linux/x86-64 hosts**.
+  Little-endian NDS32 and non-Linux hosts are unexercised — probably not far
+  off, definitely unverified.
+- Rebases onto newer LLVM happen when I need a newer rustc, not on a schedule.
+
+### What is and isn't verified
+
+| Area | State |
+|---|---|
+| i32 ALU, shifts, compares, branches, select | implemented, lit + ISS-executed |
+| i64 (register pairs, ABI2 even-pair rule) | implemented, lit + ISS-executed |
+| i8/i16 narrow load/store, sign/zero extend | implemented, lit + ISS-executed |
+| Calls, callee-saves, varargs, alloca, frame pointer | implemented, lit + ISS-executed |
+| Global addresses, constant pools, jump tables | implemented, lit + ISS-executed |
+| PIC (GOT/GOTOFF via `$gp`) and TLS-LE | implemented, ISS-executed |
+| Single-precision hard float (`v3f`, `v3f-hard`) | implemented, ISS-executed |
+| 16-bit compression + branch relaxation | implemented, ISS-executed |
+| System registers (`mfsr`/`mtsr`) | implemented, differentially tested vs binutils |
+| `+reduced-regs`, `+no-16bit` | implemented, lit-tested |
+| ELF objects, relocations, disassembler round-trip | cross-checked against GNU `objdump`/`readelf` |
+| **Double-precision hard float** | **not implemented** |
+| **Linker relaxation** | **not implemented** |
+| **Callee-saved FPRs in the hard-float ABI** | **not implemented** |
+| **Little-endian NDS32** | **untested** |
+| Execution-test breadth | finite; coverage is good, not exhaustive |
+
+Building the ISS execution loop surfaced **eight silent miscompiles** that the
+FileCheck suite could not see. That is the main reason to trust the rows above —
+and the reason the last row is stated as a residual risk rather than a
+guarantee.
 
 ## Related repositories
 
