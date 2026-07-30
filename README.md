@@ -1,3 +1,92 @@
+# LLVM with an Andes NDS32 backend
+
+This is a fork of [llvm/llvm-project](https://github.com/llvm/llvm-project) at
+`llvmorg-22.1.0` adding a **code generator for the Andes NDS32 (AndeStar)
+architecture**, big-endian included. Upstream LLVM has no NDS32 target; this one
+exists to compile Rust `no_std` firmware for an NDS32 coprocessor.
+
+- **The backend lives in [`llvm/lib/Target/NDS32/`](llvm/lib/Target/NDS32).**
+- **`nds32-v22.1.0` is the branch that has it**, and is the default branch.
+  `main` is untouched upstream LLVM and contains **no** NDS32 target at all.
+- LLVM 22 was chosen to match rustc-nightly's bundled LLVM, so rustc's IR parses
+  and lowers directly.
+
+## What's implemented
+
+Full ABI, frame pointer + alloca, varargs, register-offset and post-increment
+addressing, PIC/TLS, single-precision hard-float, 16-bit compression, system
+registers, and the complete MC layer (TableGen-driven encoder, disassembler,
+AsmParser). Rust `core` and `compiler_builtins` compile to valid NDS32 objects
+and execute correctly on the Andes nds32 ISS.
+
+Processors: `v2` (= `generic`), `v3`, `v3f`, `v3f-hard`. Primary triple:
+`nds32be-unknown-none-elf`.
+
+### Core-configuration features
+
+Beyond the ISA level, two subtarget features describe how a particular core was
+*built*. Both matter on real silicon, and both used to fail silently:
+
+| Feature | Meaning |
+|---|---|
+| `+reduced-regs` | Only the Andes reduced register set exists (r0–r10, r15, r28–r31). Allocating r11–r14 or r16–r27 yields code that **faults** on such a core. |
+| `+no-16bit` | Never emit 16-bit (compressed) forms. |
+
+Relatedly, `bitci` is V3-baseline only — a V2 core traps on it — so the
+`(and reg, imm)` → `bitci` pattern is gated behind `HasV3Ops`, and V2 lowers the
+same expression to `movi`+`and`.
+
+## Building
+
+```sh
+cmake -S llvm -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_TARGETS_TO_BUILD=X86 \
+  -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=NDS32 \
+  -DLLVM_ENABLE_ASSERTIONS=ON
+ninja -C build llc llvm-mc llvm-objdump
+```
+
+NDS32 is an *experimental* target, so `LLVM_EXPERIMENTAL_TARGETS_TO_BUILD` is
+required. Keep your host (`X86` above) in `LLVM_TARGETS_TO_BUILD` if you intend
+to link a host rustc against this build.
+
+## Testing
+
+The build above sets no `LLVM_INCLUDE_TESTS`, and the downstream configuration
+disables it, so `llvm-lit` may not discover the suite. The companion repo
+[minorum/nds32-llvm](https://github.com/minorum/nds32-llvm) carries a small lit
+replacement plus the execution suites:
+
+```sh
+bash scripts/run-nds32-tests.sh    # CodeGen + MC, exact-output FileCheck; invariant FAIL=0
+python3 scripts/verify-sysregs.py  # every sysreg spelling byte-compared against binutils
+bash scripts/run-exec-test.sh      # compiled code actually RUN on the Andes nds32 ISS
+```
+
+Do not settle for "the tests compile". Running code on the ISS has caught silent
+miscompiles — data endianness, PIC jump tables, a 1-bit branch-fixup mask — that
+FileCheck-on-assembly structurally cannot.
+
+`llvm/lib/Target/NDS32/NDS32SysRegs.td` is **generated**: the system-register
+names come from binutils' `keyword_sr` and each SRIDX is read back out of real
+`nds32be-elf-as` output rather than reimplementing binutils' encoding macro.
+Regenerate it with `scripts/gen-sysregs.py`; do not hand-edit.
+
+## Related repositories
+
+- [minorum/nds32-llvm](https://github.com/minorum/nds32-llvm) — wrapper: Rust
+  target specs (including `nds32be-conn-mcu.json`), the build and verification
+  scripts, and this fork as a submodule.
+- [minorum/mt6785-connsys-firmware](https://github.com/minorum/mt6785-connsys-firmware)
+  — the consumer: a Rust reconstruction of the MediaTek MT6785 connectivity-
+  coprocessor firmware. Its `docs/07-environment-setup.md` documents the whole
+  toolchain and how to rebuild it from nothing.
+
+Upstream LLVM's README follows.
+
+---
+
 # The LLVM Compiler Infrastructure
 
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/llvm/llvm-project/badge)](https://securityscorecards.dev/viewer/?uri=github.com/llvm/llvm-project)
