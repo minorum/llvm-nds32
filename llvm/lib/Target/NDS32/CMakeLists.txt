@@ -15,6 +15,7 @@ add_public_tablegen_target(NDS32CommonTableGen)
 
 add_llvm_target(NDS32CodeGen
   NDS32TargetMachine.cpp
+  NDS32TargetTransformInfo.cpp
   NDS32ISelDAGToDAG.cpp
   NDS32ISelLowering.cpp
   NDS32Subtarget.cpp

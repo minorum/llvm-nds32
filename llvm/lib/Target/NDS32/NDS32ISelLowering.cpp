@@ -23,18 +23,25 @@
 
 using namespace llvm;
 
-/// Suppress jump-table formation, lowering switches to compare-and-branch
-/// chains instead.
+/// Suppress BOTH kinds of compiler-emitted switch table: ISel jump tables, and
+/// SimplifyCFG's IR-level constant lookup tables. Switches lower to
+/// compare-and-branch chains instead.
 ///
 /// For targets whose read-only data cannot be read back faithfully as 32-bit
 /// words -- see the comment at the `setMinimumJumpTableEntries` call below --
-/// an indirect branch through a compiler-emitted table is unsafe by
-/// construction. Everything else that goes wrong in that situation produces a
-/// wrong value; this produces a jump to an arbitrary address.
-static cl::opt<bool>
+/// indexing a compiler-emitted table is unsafe by construction. A jump table
+/// gives an indirect branch to an arbitrary address; a lookup table gives a
+/// silently wrong constant, which is harder to notice and just as wrong. The
+/// lookup-table half is enforced in NDS32TargetTransformInfo.cpp, because
+/// SimplifyCFG asks TTI and runs long before ISel -- raising the jump-table
+/// threshold alone does NOT cover it.
+namespace llvm {
+cl::opt<bool>
     NDS32NoJumpTables("nds32-no-jump-tables", cl::Hidden, cl::init(false),
-                      cl::desc("NDS32: never form jump tables; lower switches "
-                               "to compare-and-branch chains"));
+                      cl::desc("NDS32: never form jump tables or IR constant lookup "
+                               "tables; lower switches to compare-and-branch "
+                               "chains"));
+} // namespace llvm
 
 NDS32TargetLowering::NDS32TargetLowering(const TargetMachine &TM,
                                          const NDS32Subtarget &STI)

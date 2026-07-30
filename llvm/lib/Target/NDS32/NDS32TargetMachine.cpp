@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "NDS32TargetMachine.h"
+#include "NDS32TargetTransformInfo.h"
 #include "NDS32.h"
 #include "NDS32MachineFunctionInfo.h"
 #include "TargetInfo/NDS32TargetInfo.h"
@@ -109,4 +110,9 @@ MachineFunctionInfo *NDS32TargetMachine::createMachineFunctionInfo(
     const TargetSubtargetInfo *STI) const {
   return NDS32MachineFunctionInfo::create<NDS32MachineFunctionInfo>(Allocator, F,
                                                                     STI);
+}
+
+TargetTransformInfo
+NDS32TargetMachine::getTargetTransformInfo(const Function &F) const {
+  return TargetTransformInfo(std::make_unique<NDS32TTIImpl>(this, F));
 }
