@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/NDS32MCAsmInfo.h"
 #include "MCTargetDesc/NDS32MCTargetDesc.h"
 #include "TargetInfo/NDS32TargetInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -18,6 +19,8 @@
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
+#include "llvm/ADT/StringSwitch.h"
+#include <optional>
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -149,6 +152,9 @@ class NDS32AsmParser : public MCTargetAsmParser {
 #include "NDS32GenAsmMatcher.inc"
 
   bool parseOperand(OperandVector &Operands, bool PostInc);
+  /// Parse a relocation specifier such as `hi20(sym)` or `lo12(sym)` into an
+  /// MCSpecifierExpr. Returns false if the lexer is not looking at one.
+  bool parseSpecifierExpr(const MCExpr *&Res, SMLoc &EndLoc);
   MCRegister matchRegister(StringRef Name);
 
 public:
@@ -225,6 +231,54 @@ ParseStatus NDS32AsmParser::tryParseRegister(MCRegister &Reg, SMLoc &StartLoc,
   return ParseStatus::NoMatch;
 }
 
+/// The relocation specifiers this target spells as `name(expr)`.
+///
+/// Codegen has always been able to emit these fixups; only hand-written
+/// assembly could not ask for them, which meant a `.S` file (or an `asm!`
+/// block) had no way to reference a symbol's address at all. `lo12` maps to two
+/// different fixups depending on whether the instruction's immediate is byte-
+/// or word-scaled, so the choice is made after the mnemonic is known — see
+/// the S_LO12S2 fixup below.
+static std::optional<NDS32::Specifier> specifierForName(StringRef Name) {
+  return StringSwitch<std::optional<NDS32::Specifier>>(Name)
+      .Case("hi20", NDS32::S_HI20)
+      .Case("lo12", NDS32::S_LO12S0)
+      .Case("hi20gotoff", NDS32::S_GOTOFF_HI20)
+      .Case("lo12gotoff", NDS32::S_GOTOFF_LO12)
+      .Case("hi20got", NDS32::S_GOT_HI20)
+      .Case("lo12got", NDS32::S_GOT_LO12)
+      .Case("hi20tpoff", NDS32::S_TLS_LE_HI20)
+      .Case("lo12tpoff", NDS32::S_TLS_LE_LO12)
+      .Default(std::nullopt);
+}
+
+bool NDS32AsmParser::parseSpecifierExpr(const MCExpr *&Res, SMLoc &EndLoc) {
+  AsmLexer &Lexer = Parser.getLexer();
+  if (Lexer.isNot(AsmToken::Identifier))
+    return false;
+  auto Spec = specifierForName(Lexer.getTok().getIdentifier());
+  if (!Spec)
+    return false;
+  // Only treat it as a specifier when a '(' follows; a bare symbol that happens
+  // to be called `hi20` is still a symbol.
+  if (Lexer.peekTok().isNot(AsmToken::LParen))
+    return false;
+
+  Lexer.Lex(); // name
+  Lexer.Lex(); // '('
+  const MCExpr *Sub;
+  if (Parser.parseExpression(Sub, EndLoc))
+    return true;
+  if (Lexer.isNot(AsmToken::RParen)) {
+    Error(Lexer.getTok().getLoc(), "expected ')' closing relocation specifier");
+    return true;
+  }
+  EndLoc = Lexer.getTok().getEndLoc();
+  Lexer.Lex(); // ')'
+  Res = MCSpecifierExpr::create(Sub, *Spec, Parser.getContext());
+  return false;
+}
+
 bool NDS32AsmParser::parseOperand(OperandVector &Operands, bool PostInc) {
   AsmLexer &Lexer = Parser.getLexer();
   SMLoc S = Lexer.getTok().getLoc();
@@ -273,9 +327,11 @@ bool NDS32AsmParser::parseOperand(OperandVector &Operands, bool PostInc) {
         Operands.push_back(
             NDS32Operand::createMemRR(Base, Index, Scale, S, IE));
       } else {
-        const MCExpr *Off;
+        const MCExpr *Off = nullptr;
         SMLoc OE;
-        if (Parser.parseExpression(Off, OE))
+        if (parseSpecifierExpr(Off, OE))
+          return true;
+        if (!Off && Parser.parseExpression(Off, OE))
           return true;
         Operands.push_back(NDS32Operand::createMem(Base, Off, S, OE));
       }
@@ -299,10 +355,12 @@ bool NDS32AsmParser::parseOperand(OperandVector &Operands, bool PostInc) {
     return false;
   }
 
-  // Otherwise an immediate/expression.
-  const MCExpr *Expr;
+  // Otherwise a relocation specifier, or a plain immediate/expression.
+  const MCExpr *Expr = nullptr;
   SMLoc E;
-  if (Parser.parseExpression(Expr, E))
+  if (parseSpecifierExpr(Expr, E))
+    return true;
+  if (!Expr && Parser.parseExpression(Expr, E))
     return true;
   Operands.push_back(NDS32Operand::createImm(Expr, S, E));
   return false;

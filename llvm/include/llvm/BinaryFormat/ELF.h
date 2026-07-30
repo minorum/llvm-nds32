@@ -1095,6 +1095,11 @@ enum {
 #include "ELFRelocs/Xtensa.def"
 };
 
+// ELF Relocation types for Andes NDS32
+enum {
+#include "ELFRelocs/NDS32.def"
+};
+
 #undef ELF_RELOC
 
 // Section header.

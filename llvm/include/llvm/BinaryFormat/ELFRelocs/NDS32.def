@@ -1,0 +1,37 @@
+#ifndef ELF_RELOC
+#error "ELF_RELOC must be defined"
+#endif
+
+// Andes NDS32 relocation types. Numbers are binutils-authoritative (bfd's
+// elf32-nds32 reloc table); only the subset this backend emits or a linker is
+// likely to hand back is listed, which is why the numbering has gaps.
+ELF_RELOC(R_NDS32_NONE,               0)
+ELF_RELOC(R_NDS32_32_RELA,           20)
+ELF_RELOC(R_NDS32_9_PCREL_RELA,      22)
+ELF_RELOC(R_NDS32_15_PCREL_RELA,     23)
+ELF_RELOC(R_NDS32_17_PCREL_RELA,     24)
+ELF_RELOC(R_NDS32_25_PCREL_RELA,     25)
+ELF_RELOC(R_NDS32_HI20_RELA,         26)
+ELF_RELOC(R_NDS32_LO12S3_RELA,       27)
+ELF_RELOC(R_NDS32_LO12S2_RELA,       28)
+ELF_RELOC(R_NDS32_LO12S1_RELA,       29)
+ELF_RELOC(R_NDS32_LO12S0_RELA,       30)
+ELF_RELOC(R_NDS32_SDA15S3_RELA,      31)
+ELF_RELOC(R_NDS32_SDA15S2_RELA,      32)
+ELF_RELOC(R_NDS32_SDA15S1_RELA,      33)
+ELF_RELOC(R_NDS32_SDA15S0_RELA,      34)
+ELF_RELOC(R_NDS32_GOT20,             37)
+ELF_RELOC(R_NDS32_COPY,              39)
+ELF_RELOC(R_NDS32_GLOB_DAT,          40)
+ELF_RELOC(R_NDS32_JMP_SLOT,          41)
+ELF_RELOC(R_NDS32_RELATIVE,          42)
+ELF_RELOC(R_NDS32_GOTOFF,            43)
+ELF_RELOC(R_NDS32_GOTPC20,           44)
+ELF_RELOC(R_NDS32_GOT_HI20,          45)
+ELF_RELOC(R_NDS32_GOT_LO12,          46)
+ELF_RELOC(R_NDS32_GOTPC_HI20,        47)
+ELF_RELOC(R_NDS32_GOTPC_LO12,        48)
+ELF_RELOC(R_NDS32_GOTOFF_HI20,       49)
+ELF_RELOC(R_NDS32_GOTOFF_LO12,       50)
+ELF_RELOC(R_NDS32_TLS_LE_HI20,       98)
+ELF_RELOC(R_NDS32_TLS_LE_LO12,       99)
