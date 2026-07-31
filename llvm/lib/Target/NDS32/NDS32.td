@@ -50,9 +50,21 @@ def FeatureReducedRegs : SubtargetFeature<"reduced-regs", "HasReducedRegs",
                   "true", "Only the Andes reduced register set is implemented "
                   "(r0-r10, r15, r28-r31)">;
 
-// Suppress the 16-bit (compressed) instruction forms.
-def FeatureNo16Bit : SubtargetFeature<"no-16bit", "HasNo16Bit", "true",
-                  "Do not emit 16-bit (compressed) instruction forms">;
+// The Andes 16-bit instruction extension, which Andes' own tools model as an
+// extension a part either implements or does not: GCC spells it -m16-bit /
+// -mno-16-bit and the assembler -m[no-]16bit-ext. So this is a positive
+// feature naming a capability, matching the assembler's spelling — presence
+// means the compressed forms may be emitted.
+//
+// It was previously a negative feature ("no-16bit") whose absence asserted the
+// extension was present. That inverts the convention every other feature here
+// follows, and it defaulted the more aggressive choice on: a subtarget that
+// simply forgot the flag emitted compressed forms silently. Every NDS32
+// baseline this backend targets does implement the extension, so the processor
+// models below carry it and nothing changes for a build that names a CPU; a
+// core configured without it subtracts it (-16bit-ext) and says so explicitly.
+def Feature16BitExt : SubtargetFeature<"16bit-ext", "Has16BitExt", "true",
+                  "Andes 16-bit (compressed) instruction extension">;
 
 include "NDS32RegisterInfo.td"
 include "NDS32InstrInfo.td"
@@ -76,12 +88,17 @@ def NDS32SchedModel : SchedMachineModel {
 }
 
 // "generic" defaults to the V2 baseline; "v2"/"v3" select the ISA explicitly.
-def : ProcessorModel<"generic", NDS32SchedModel, [FeatureV2]>;
-def : ProcessorModel<"nds32",   NDS32SchedModel, [FeatureV2]>;
-def : ProcessorModel<"v2",      NDS32SchedModel, [FeatureV2]>;
-def : ProcessorModel<"v3",      NDS32SchedModel, [FeatureV3]>;
-def : ProcessorModel<"v3f",     NDS32SchedModel, [FeatureFPU]>;
-def : ProcessorModel<"v3f-hard", NDS32SchedModel, [FeatureHardFloatABI]>;
+// Every one carries Feature16BitExt: the 16-bit extension is implemented on the
+// NDS32 baselines this backend targets (the MT6785 conn-MCU's own vendor
+// firmware is 45.7% 16-bit encodings). A part without it, or a build that
+// deliberately declines to use it, subtracts it with -mattr=-16bit-ext.
+def : ProcessorModel<"generic", NDS32SchedModel, [FeatureV2, Feature16BitExt]>;
+def : ProcessorModel<"nds32",   NDS32SchedModel, [FeatureV2, Feature16BitExt]>;
+def : ProcessorModel<"v2",      NDS32SchedModel, [FeatureV2, Feature16BitExt]>;
+def : ProcessorModel<"v3",      NDS32SchedModel, [FeatureV3, Feature16BitExt]>;
+def : ProcessorModel<"v3f",     NDS32SchedModel, [FeatureFPU, Feature16BitExt]>;
+def : ProcessorModel<"v3f-hard", NDS32SchedModel,
+                     [FeatureHardFloatABI, Feature16BitExt]>;
 
 def NDS32 : Target {
   let InstructionSet = NDS32InstrInfo;
