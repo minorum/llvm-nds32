@@ -154,6 +154,12 @@ public:
                            const MCSubtargetInfo &STI) const {
     return (static_cast<uint32_t>(MI.getOperand(OpNo).getImm()) >> 2) & 0x3f;
   }
+  // 16-bit lhi333/shi333: 3-bit halfword offset.
+  unsigned encodeOff3Half(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &Fixups,
+                          const MCSubtargetInfo &STI) const {
+    return (static_cast<uint32_t>(MI.getOperand(OpNo).getImm()) >> 1) & 0x7;
+  }
   // 16-bit lwi333/swi333: 3-bit word offset.
   unsigned encodeOff3Words(const MCInst &MI, unsigned OpNo,
                            SmallVectorImpl<MCFixup> &Fixups,

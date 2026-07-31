@@ -292,7 +292,14 @@ def off3words : Operand<i32> {
   let EncoderMethod = "encodeOff3Words";
   let DecoderMethod = "decodeOff3Words";
 }
-def off3half : Operand<i32> { let DecoderMethod = "decodeOff3Half"; } // lhi333/shi333
+// lhi333/shi333: like off3words, the operand is a BYTE displacement and the
+// field holds it in halfwords, so both directions need the conversion. Without
+// the encoder the assembler took the printed byte offset as a halfword count
+// and disagreed with its own disassembler by a factor of two.
+def off3half : Operand<i32> {
+  let DecoderMethod = "decodeOff3Half";
+  let EncoderMethod = "encodeOff3Half";
+}
 def off3byte : Operand<i32> { let DecoderMethod = "decodeOff3Byte"; } // lbi333/sbi333
 
 // 16-bit movi55: 5-bit signed immediate.

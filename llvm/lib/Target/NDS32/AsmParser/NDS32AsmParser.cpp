@@ -151,7 +151,16 @@ class NDS32AsmParser : public MCTargetAsmParser {
 #define GET_ASSEMBLER_HEADER
 #include "NDS32GenAsmMatcher.inc"
 
-  bool parseOperand(OperandVector &Operands, bool PostInc);
+  // How an instruction spells the inside of its brackets. The AsmStrings differ
+  // and the matcher is unforgiving, so the parser has to know which shape to
+  // build before it has seen the operands.
+  enum class Brackets {
+    Memory,     // "[$ra + off]" as ONE memory operand (the 32-bit memri forms)
+    BareReg,    // "[$ra]"       -- post-increment, load/store-multiple, *450
+    RegPlusImm, // "[$ra + imm]" as TWO operands (the 16-bit *333 forms)
+  };
+  static Brackets bracketsFor(StringRef Mnemonic);
+  bool parseOperand(OperandVector &Operands, Brackets Shape);
   /// Parse a relocation specifier such as `hi20(sym)` or `lo12(sym)` into an
   /// MCSpecifierExpr. Returns false if the lexer is not looking at one.
   bool parseSpecifierExpr(const MCExpr *&Res, SMLoc &EndLoc);
@@ -279,7 +288,21 @@ bool NDS32AsmParser::parseSpecifierExpr(const MCExpr *&Res, SMLoc &EndLoc) {
   return false;
 }
 
-bool NDS32AsmParser::parseOperand(OperandVector &Operands, bool PostInc) {
+NDS32AsmParser::Brackets NDS32AsmParser::bracketsFor(StringRef Name) {
+  // A bare base register in brackets: post-increment loads/stores, every
+  // load/store-multiple, and the 16-bit "450" forms. This has to be tested
+  // FIRST -- `lwi333.bi` is spelled "[$ra], $imm", with the displacement after
+  // the bracket, so the "333" rule below would put it in the wrong shape.
+  if (Name.ends_with(".bi") || Name.ends_with("450") || Name.starts_with("lmw.") ||
+      Name.starts_with("smw."))
+    return Brackets::BareReg;
+  // The 16-bit "333" forms name their base and displacement separately.
+  if (Name.ends_with("333"))
+    return Brackets::RegPlusImm;
+  return Brackets::Memory;
+}
+
+bool NDS32AsmParser::parseOperand(OperandVector &Operands, Brackets Shape) {
   AsmLexer &Lexer = Parser.getLexer();
   SMLoc S = Lexer.getTok().getLoc();
 
@@ -319,12 +342,60 @@ bool NDS32AsmParser::parseOperand(OperandVector &Operands, bool PostInc) {
     if (!tryParseRegister(Base, BS, BE).isSuccess())
       return Error(Lexer.getTok().getLoc(), "expected base register");
 
-    // Post-increment form "[$ra]": the base is a plain register operand (the
-    // increment follows the closing bracket as a separate operand).
-    if (PostInc) {
+    // "[$ra + imm]" spelled as two operands rather than one memory operand.
+    if (Shape == Brackets::RegPlusImm) {
+      Operands.push_back(NDS32Operand::createReg(Base, BS, BE));
+      if (Lexer.isNot(AsmToken::Plus))
+        return Error(Lexer.getTok().getLoc(), "expected '+'");
+      Operands.push_back(
+          NDS32Operand::createToken("+", Lexer.getTok().getLoc()));
+      Lexer.Lex();
+      const MCExpr *Off = nullptr;
+      SMLoc OE;
+      if (Parser.parseExpression(Off, OE))
+        return true;
+      Operands.push_back(NDS32Operand::createImm(Off, S, OE));
+      if (Lexer.isNot(AsmToken::RBrac))
+        return Error(Lexer.getTok().getLoc(), "expected ']'");
+      Operands.push_back(
+          NDS32Operand::createToken("]", Lexer.getTok().getLoc()));
+      Lexer.Lex();
+      return false;
+    }
+
+    // Bare base register in brackets; anything that follows (a post-increment
+    // step, the register range of an LSMW) comes after the closing bracket as
+    // its own operand.
+    if (Shape == Brackets::BareReg) {
       if (Lexer.isNot(AsmToken::RBrac))
         return Error(Lexer.getTok().getLoc(), "expected ']'");
       Operands.push_back(NDS32Operand::createReg(Base, BS, BE));
+      Operands.push_back(
+          NDS32Operand::createToken("]", Lexer.getTok().getLoc()));
+      Lexer.Lex();
+      return false;
+    }
+
+    // A negative displacement is printed as "[$ra - 4]", so it arrives as a
+    // Minus token rather than as part of the expression. Without this the
+    // disassembler's own output for every negative offset -- 13 of them in the
+    // firmware -- came back "expected base register".
+    if (Lexer.is(AsmToken::Minus)) {
+      Lexer.Lex();
+      const MCExpr *Off = nullptr;
+      SMLoc OE;
+      if (Parser.parseExpression(Off, OE))
+        return true;
+      // Fold rather than wrap: the offset encoders read a constant out of the
+      // operand, and handing them an MCUnaryExpr made them encode 0 for a
+      // word offset and crash outright on a byte one.
+      if (auto *CE = dyn_cast<MCConstantExpr>(Off))
+        Off = MCConstantExpr::create(-CE->getValue(), Parser.getContext());
+      else
+        Off = MCUnaryExpr::createMinus(Off, Parser.getContext());
+      Operands.push_back(NDS32Operand::createMem(Base, Off, S, OE));
+      if (Lexer.isNot(AsmToken::RBrac))
+        return Error(Lexer.getTok().getLoc(), "expected ']'");
       Operands.push_back(
           NDS32Operand::createToken("]", Lexer.getTok().getLoc()));
       Lexer.Lex();
@@ -398,15 +469,18 @@ bool NDS32AsmParser::parseInstruction(ParseInstructionInfo &Info,
   if (Parser.getLexer().is(AsmToken::EndOfStatement))
     return false;
 
-  // Post-increment loads/stores (mnemonic suffix ".bi") spell their base as a
-  // bare register inside literal brackets — "[$ra]" — not as a memory operand.
-  const bool PostInc = Name.ends_with(".bi");
+  // Only ".bi" used to be recognised here, which covered lmw.bi and smw.bi but
+  // missed the four base-updating multiples -- so `smw.adm` and `lmw.bim`, the
+  // two commonest prologue/epilogue instructions in this firmware (123 and 125
+  // uses), could not be assembled at all while their siblings could. The 16-bit
+  // *333 and *450 forms were unreachable for the same reason.
+  const Brackets Shape = bracketsFor(Name);
 
-  if (parseOperand(Operands, PostInc))
+  if (parseOperand(Operands, Shape))
     return true;
   while (Parser.getLexer().is(AsmToken::Comma)) {
     Parser.getLexer().Lex();
-    if (parseOperand(Operands, PostInc))
+    if (parseOperand(Operands, Shape))
       return true;
   }
   if (Parser.getLexer().isNot(AsmToken::EndOfStatement))
