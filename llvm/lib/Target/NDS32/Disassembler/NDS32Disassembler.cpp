@@ -279,11 +279,19 @@ static DecodeStatus decodeOff17Words(MCInst &Inst, unsigned Imm,
   Inst.addOperand(MCOperand::createImm(SignExtend32<17>(Imm) << 2));
   return MCDisassembler::Success;
 }
-// gp-relative byte load: signed 17-bit byte offset (unscaled).
-static DecodeStatus decodeOff17Byte(MCInst &Inst, unsigned Imm,
+// gp-relative byte ops (lbi.gp/lbsi.gp/sbi.gp) and addi.gp: signed 19-bit
+// offset, unscaled -- the opcode already fixes the width.
+static DecodeStatus decodeOff19Byte(MCInst &Inst, unsigned Imm,
                                     uint64_t Address,
                                     const MCDisassembler *Decoder) {
-  Inst.addOperand(MCOperand::createImm(SignExtend32<17>(Imm)));
+  Inst.addOperand(MCOperand::createImm(SignExtend32<19>(Imm)));
+  return MCDisassembler::Success;
+}
+// gp-relative halfword ops: signed 18-bit field holding a halfword count.
+static DecodeStatus decodeOff18Halfwords(MCInst &Inst, unsigned Imm,
+                                         uint64_t Address,
+                                         const MCDisassembler *Decoder) {
+  Inst.addOperand(MCOperand::createImm(SignExtend32<18>(Imm) << 1));
   return MCDisassembler::Success;
 }
 

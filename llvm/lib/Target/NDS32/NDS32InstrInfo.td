@@ -299,8 +299,18 @@ def off3byte : Operand<i32> { let DecoderMethod = "decodeOff3Byte"; } // lbi333/
 def simm5op : Operand<i32> { let DecoderMethod = "decodeSImm5"; }
 
 // Additional 16-bit (Baseline16) operand forms used only for disassembly.
-def off7w   : Operand<i32> { let DecoderMethod = "decodeOff7Words"; } // lwi37.sp/swi37.sp
-def off6w   : Operand<i32> { let DecoderMethod = "decodeOff6Words"; } // addri36.sp
+// sp-/fp-relative word offsets. Like off17w these print a BYTE displacement
+// and store a word count, so both directions need the conversion -- without the
+// EncoderMethod the assembler encoded `lwi37.sp $r1, [+ 4]` as offset 4 words
+// (byte 16) and disagreed with its own disassembler by a factor of four.
+def off7w   : Operand<i32> {                                          // lwi37.sp/swi37.sp
+  let DecoderMethod = "decodeOff7Words";
+  let EncoderMethod = "encodeOff7Words";
+}
+def off6w   : Operand<i32> {                                          // addri36.sp
+  let DecoderMethod = "decodeOff6Words";
+  let EncoderMethod = "encodeOff6Words";
+}
 def simm10op : Operand<i32> { let DecoderMethod = "decodeSImm10"; }   // addi10.sp
 def movpiimm : Operand<i32> { let DecoderMethod = "decodeMovpi"; }    // movpi45 (+16 bias)
 def gpreven : RegisterOperand<GPR> { let DecoderMethod = "decodeEvenGPR"; } // movd44
@@ -312,10 +322,24 @@ def off17w   : Operand<i32> {                                          // lwi.gp
   // disagree by a factor of four.
   let EncoderMethod = "encodeOff17Words";
 }
-def off17b   : Operand<i32> { let DecoderMethod = "decodeOff17Byte"; }  // lbsi.gp
+// gp-relative byte displacement, 19 bits, unscaled (lbi.gp/lbsi.gp/sbi.gp,
+// and addi.gp, whose "offset" is just an addend).
+def off19b   : Operand<i32> { let DecoderMethod = "decodeOff19Byte"; }
+// gp-relative halfword displacement: 18-bit field holding a byte offset
+// scaled by two, so both directions need a conversion (as off17w does).
+def off18h   : Operand<i32> {
+  let DecoderMethod = "decodeOff18Halfwords";
+  let EncoderMethod = "encodeOff18Halfwords";
+}
 // 8-bit PC-relative target (x2) for the 32-bit beqc/bnec (same decode as the
 // 16-bit short-branch displacement).
-def brtarget8 : Operand<OtherVT> { let DecoderMethod = "decodeBr9"; }
+def brtarget8 : Operand<OtherVT> {
+  let DecoderMethod = "decodeBr9";
+  // encodeBr9 halves the displacement. It existed but was never referenced, so
+  // a literal target (`beqs38 $r0, 10`) encoded unscaled and came back out of
+  // the disassembler as 20.
+  let EncoderMethod = "encodeBr9";
+}
 
 // Register-offset load/store: op6=0x1c, rt, packed base/index/scale in [19:8],
 // 8-bit sub-opcode in [7:0].
@@ -942,6 +966,40 @@ def SWI_GP : GpF<7, (outs), (ins GPR:$rt, off17w:$off), "swi.gp\t$rt, [+ $off]">
   let mayStore = 1;
 }
 
+// Halfword gp-relative. The 18-bit displacement overlaps GpF's sub field, so
+// these select on Inst{19-18} only: 00 lhi.gp, 01 lhsi.gp, 10 shi.gp, and 11
+// hands the encoding to GpF above (Inst{17} then picks lwi.gp/swi.gp).
+class GpHF<bits<2> sub, dag outs, dag ins, string asmstr>
+    : NDS32Inst<outs, ins, asmstr, []> {
+  bits<5> rt; bits<18> off;
+  let Inst{31-25} = 0x1e; let Inst{24-20} = rt; let Inst{19-18} = sub;
+  let Inst{17-0} = off;
+}
+def LHI_GP  : GpHF<0, (outs GPR:$rt), (ins off18h:$off),
+                   "lhi.gp\t$rt, [+ $off]"> { let mayLoad = 1; }
+def LHSI_GP : GpHF<1, (outs GPR:$rt), (ins off18h:$off),
+                   "lhsi.gp\t$rt, [+ $off]"> { let mayLoad = 1; }
+def SHI_GP  : GpHF<2, (outs), (ins GPR:$rt, off18h:$off),
+                   "shi.gp\t$rt, [+ $off]"> { let mayStore = 1; }
+
+// Byte gp-relative, plus addi.gp which shares the format. Here op6 already
+// fixes the width, so the whole 19-bit field is the displacement and a single
+// bit picks the operation.
+class GpBF<bits<7> op, bit sub, dag outs, dag ins, string asmstr>
+    : NDS32Inst<outs, ins, asmstr, []> {
+  bits<5> rt; bits<19> off;
+  let Inst{31-25} = op; let Inst{24-20} = rt; let Inst{19} = sub;
+  let Inst{18-0} = off;
+}
+def LBI_GP  : GpBF<0x17, 0, (outs GPR:$rt), (ins off19b:$off),
+                   "lbi.gp\t$rt, [+ $off]"> { let mayLoad = 1; }
+def SBI_GP  : GpBF<0x1f, 0, (outs), (ins GPR:$rt, off19b:$off),
+                   "sbi.gp\t$rt, [+ $off]"> { let mayStore = 1; }
+// Not a memory op: $rt = $gp + off. The blob uses it to materialise pointers
+// to gp-relative data in one instruction.
+def ADDI_GP : GpBF<0x1f, 1, (outs GPR:$rt), (ins off19b:$off),
+                   "addi.gp\t$rt, $off">;
+
 // Absolute loads/stores through the fixed $gp. Only selected when
 // -nds32-gp-base names the runtime $gp and the address is in range and
 // word-aligned (selectGpAddr enforces both); otherwise the generic
@@ -1004,14 +1062,16 @@ def MULSR64 : ALUrrr<0x21, 0x068, (outs GPR:$rt), (ins GPR:$ra, GPR:$rb),
                      "mulsr64\t$rt, $ra, $rb", []>;
 def BTGL    : ALUsa<0x21, 0x00a, (outs GPR:$rt), (ins GPR:$ra, i32imm:$sa),
                     "btgl\t$rt, $ra, $sa", []>;
-// 32-bit gp-relative signed byte load (op6=0x17, sub[19:17]=4, off17 unscaled).
-def LBSI_GP : NDS32Inst<(outs GPR:$rt), (ins off17b:$off), "lbsi.gp\t$rt, [+ $off]",
-                        []> {
-  bits<5> rt; bits<17> off;
-  let mayLoad = 1;
-  let Inst{31-25} = 0x17; let Inst{24-20} = rt; let Inst{19-17} = 4;
-  let Inst{16-0} = off;
-}
+// 32-bit gp-relative signed byte load. Shares LBGP with lbi.gp above, so the
+// displacement is 19 bits and Inst{19} alone selects the operation.
+//
+// This previously read `Inst{19-17} = 4` with a 17-bit field, which forced the
+// displacement's two top bits to zero -- fine for small positive offsets, wrong
+// for every negative one, and $gp sits above its data here so real offsets are
+// negative. The 19-bit layout is the one the sibling lbi.gp is verified against
+// across 104 instructions of vendor code.
+def LBSI_GP : GpBF<0x17, 1, (outs GPR:$rt), (ins off19b:$off),
+                   "lbsi.gp\t$rt, [+ $off]"> { let mayLoad = 1; }
 // 32-bit reg-offset post-increment store byte (op6=0x1c, sub=0x0c).
 def SB_BI : RegOffF<0x0c, (outs), (ins GPR:$rt, memrr:$addr),
                     "sb.bi\t$rt, $addr", []> { let mayStore = 1; }
@@ -1033,6 +1093,48 @@ def BNES38 : NDS32Inst16<(outs), (ins GPR:$rt, brtarget8:$target),
   bits<3> rt; bits<8> target;
   let Inst{15-11} = 0x1b; let Inst{10-8} = rt; let Inst{7-0} = target;
 }
+
+// beqzs8/bnezs8 test $ta ($r15) rather than naming a register, which is what
+// buys them a full 8-bit displacement. They are the branch half of the
+// slt45/slti45 pair below: in the vendor firmware every one of 181 of these is
+// immediately preceded by a compare that writes $ta.
+def BEQZS8 : NDS32Inst16<(outs), (ins brtarget8:$target), "beqzs8\t$target"> {
+  bits<8> target;
+  let Uses = [R15];
+  let Inst{15-8} = 0xe8; let Inst{7-0} = target;
+}
+def BNEZS8 : NDS32Inst16<(outs), (ins brtarget8:$target), "bnezs8\t$target"> {
+  bits<8> target;
+  let Uses = [R15];
+  let Inst{15-8} = 0xe9; let Inst{7-0} = target;
+}
+} // isBranch, isTerminator
+
+// 16-bit set-less-than. The result is implicit in $ta, so only the two compared
+// values are named; Inst{10} picks immediate vs register and Inst{9} unsigned
+// vs signed (slt/slti are the unsigned pair, slts/sltsi the signed one).
+class Slt45<bits<7> op, dag ins, string asmstr> : NDS32Inst16<(outs), ins, asmstr> {
+  bits<4> rt; bits<5> rb;
+  let Defs = [R15];
+  let Inst{15-9} = op; let Inst{8-5} = rt; let Inst{4-0} = rb;
+}
+def SLTS45  : Slt45<0x70, (ins gpr4:$rt, GPR:$rb),    "slts45\t$rt, $rb">;
+def SLT45   : Slt45<0x71, (ins gpr4:$rt, GPR:$rb),    "slt45\t$rt, $rb">;
+def SLTSI45 : Slt45<0x72, (ins gpr4:$rt, i32imm:$rb), "sltsi45\t$rt, $rb">;
+def SLTI45  : Slt45<0x73, (ins gpr4:$rt, i32imm:$rb), "slti45\t$rt, $rb">;
+
+// $fp-relative word load/store: same shape as lwi37.sp/swi37.sp, different base.
+def LWI37 : NDS32Inst16<(outs GPR:$rt), (ins off7w:$off), "lwi37\t$rt, [+ $off]"> {
+  bits<3> rt; bits<7> off;
+  let mayLoad = 1;
+  let Uses = [R28];
+  let Inst{15-11} = 0x17; let Inst{10-8} = rt; let Inst{7} = 0; let Inst{6-0} = off;
+}
+def SWI37 : NDS32Inst16<(outs), (ins GPR:$rt, off7w:$off), "swi37\t$rt, [+ $off]"> {
+  bits<3> rt; bits<7> off;
+  let mayStore = 1;
+  let Uses = [R28];
+  let Inst{15-11} = 0x17; let Inst{10-8} = rt; let Inst{7} = 1; let Inst{6-0} = off;
 }
 
 // 16-bit short branches. The 8-bit displacement is PC-relative (scaled by 2),

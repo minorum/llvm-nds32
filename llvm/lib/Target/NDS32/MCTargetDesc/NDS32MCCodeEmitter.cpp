@@ -133,6 +133,27 @@ public:
     assert(isInt<17>(Byte / 4) && "gp-relative offset out of 17-bit word range");
     return static_cast<uint32_t>(Byte >> 2) & 0x1ffff;
   }
+  // gp-relative halfword ops: the operand is a byte displacement, the field
+  // holds it in halfwords. Same split as encodeOff17Words.
+  unsigned encodeOff18Halfwords(const MCInst &MI, unsigned OpNo,
+                                SmallVectorImpl<MCFixup> &Fixups,
+                                const MCSubtargetInfo &STI) const {
+    int64_t Byte = MI.getOperand(OpNo).getImm();
+    assert(Byte % 2 == 0 && "gp-relative halfword offset must be 2-byte aligned");
+    assert(isInt<18>(Byte / 2) && "gp-relative offset out of 18-bit range");
+    return static_cast<uint32_t>(Byte >> 1) & 0x3ffff;
+  }
+  // 16-bit sp-/fp-relative word offsets: byte displacement in, word count out.
+  unsigned encodeOff7Words(const MCInst &MI, unsigned OpNo,
+                           SmallVectorImpl<MCFixup> &Fixups,
+                           const MCSubtargetInfo &STI) const {
+    return (static_cast<uint32_t>(MI.getOperand(OpNo).getImm()) >> 2) & 0x7f;
+  }
+  unsigned encodeOff6Words(const MCInst &MI, unsigned OpNo,
+                           SmallVectorImpl<MCFixup> &Fixups,
+                           const MCSubtargetInfo &STI) const {
+    return (static_cast<uint32_t>(MI.getOperand(OpNo).getImm()) >> 2) & 0x3f;
+  }
   // 16-bit lwi333/swi333: 3-bit word offset.
   unsigned encodeOff3Words(const MCInst &MI, unsigned OpNo,
                            SmallVectorImpl<MCFixup> &Fixups,

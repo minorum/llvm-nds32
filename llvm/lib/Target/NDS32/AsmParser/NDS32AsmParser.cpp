@@ -289,6 +289,31 @@ bool NDS32AsmParser::parseOperand(OperandVector &Operands, bool PostInc) {
   if (Lexer.is(AsmToken::LBrac)) {
     Operands.push_back(NDS32Operand::createToken("[", S));
     Lexer.Lex();
+
+    // Implicit-base form "[+ off]", used by the gp-, sp- and fp-relative loads
+    // and stores whose base is fixed by the opcode. Their AsmStrings spell it
+    // exactly this way, so without this the disassembler prints syntax the
+    // assembler rejects -- `lwi.gp $r0, [+ -4]` round-tripped to
+    // "error: expected base register".
+    if (Lexer.is(AsmToken::Plus)) {
+      Operands.push_back(
+          NDS32Operand::createToken("+", Lexer.getTok().getLoc()));
+      Lexer.Lex();
+      const MCExpr *Off = nullptr;
+      SMLoc OE;
+      if (parseSpecifierExpr(Off, OE))
+        return true;
+      if (!Off && Parser.parseExpression(Off, OE))
+        return true;
+      Operands.push_back(NDS32Operand::createImm(Off, S, OE));
+      if (Lexer.isNot(AsmToken::RBrac))
+        return Error(Lexer.getTok().getLoc(), "expected ']'");
+      Operands.push_back(
+          NDS32Operand::createToken("]", Lexer.getTok().getLoc()));
+      Lexer.Lex();
+      return false;
+    }
+
     MCRegister Base;
     SMLoc BS, BE;
     if (!tryParseRegister(Base, BS, BE).isSuccess())
