@@ -148,6 +148,23 @@ def MemRRAsmOperand : AsmOperandClass {
   let PredicateMethod = "isMemRR";
 }
 
+def UImm2AsmOperand : AsmOperandClass {
+  let Name = "UImm2";
+  let PredicateMethod = "isUImm2";
+  let RenderMethod = "addImmOperands";
+}
+def UImm5AsmOperand : AsmOperandClass {
+  let Name = "UImm5";
+  let PredicateMethod = "isUImm5";
+  let RenderMethod = "addImmOperands";
+}
+def uimm2op : Operand<i32>, TImmLeaf<i32, [{
+  return static_cast<uint32_t>(Imm) < 4;
+}]> { let ParserMatchClass = UImm2AsmOperand; }
+def uimm5op : Operand<i32>, TImmLeaf<i32, [{
+  return static_cast<uint32_t>(Imm) < 32;
+}]> { let ParserMatchClass = UImm5AsmOperand; }
+
 // I-type 15-bit immediate (carries lo12 symbol fixups via encodeImm15). The
 // plain form is zero-extended (andi/ori/xori/bitci); the signed form
 // (addi/slti/sltsi) sign-extends on disassembly.
@@ -919,6 +936,14 @@ def JRAL5 : NDS32Inst16<(outs), (ins GPR:$rb), "jral5\t$rb"> {
   let Inst{15-5} = 0x6e9; let Inst{4-0} = rb;
 }
 
+// 16-bit debugger trap. The exception number is the low five bits.
+let hasSideEffects = 1, isTrap = 1 in
+def BREAK16 : NDS32Inst16<(outs), (ins uimm5op:$ex), "break16\t$ex"> {
+  bits<5> ex;
+  let Pattern = [(int_nds32_break16 uimm5op:$ex)];
+  let Inst{15-5} = 0x750; let Inst{4-0} = ex;
+}
+
 // 32-bit iret: op6=0x32, sub [4:0]=0x04. Exception return -- restores $psw from
 // $ipsw and jumps to $ipc atomically. Needed to write a context switch (the
 // saved context replaces the current one, so this is not a `ret`); the
@@ -938,9 +963,43 @@ def SYSCALL : NDS32Inst<(outs), (ins i32imm:$swid), "syscall\t$swid", []> {
 
 // 32-bit dsb: op6=0x32, sub [4:0]=0x08. Data synchronisation barrier.
 let hasSideEffects = 1 in
-def DSB : NDS32Inst<(outs), (ins), "dsb", []> {
+def DSB : NDS32Inst<(outs), (ins), "dsb", [(int_nds32_dsb)]> {
   let Inst{31-25} = 0x32; let Inst{24-20} = 0;
   let Inst{19-5} = 0;     let Inst{4-0} = 0x08;
+}
+
+// 32-bit isb: op6=0x32, sub [4:0]=0x09. Instruction synchronisation barrier.
+let hasSideEffects = 1 in
+def ISB : NDS32Inst<(outs), (ins), "isb", [(int_nds32_isb)]> {
+  let Inst{31-25} = 0x32; let Inst{24-20} = 0;
+  let Inst{19-5} = 0;     let Inst{4-0} = 0x09;
+}
+
+// 32-bit setgie aliases of mtsr $psw. The enable state is encoded in rt[0],
+// while SRIDX=$psw and bit 6 select the dedicated GIE update operation.
+let hasSideEffects = 1 in {
+def SETGIE_D : NDS32Inst<(outs), (ins), "setgie.d", [(int_nds32_setgie_d)]> {
+  let Inst{31-25} = 0x32; let Inst{24-20} = 0;
+  let Inst{19-7} = 0x400; let Inst{6} = 1; let Inst{5} = 0;
+  let Inst{4-0} = 0x03;
+}
+def SETGIE_E : NDS32Inst<(outs), (ins), "setgie.e", [(int_nds32_setgie_e)]> {
+  let Inst{31-25} = 0x32; let Inst{24-20} = 1;
+  let Inst{19-7} = 0x400; let Inst{6} = 1; let Inst{5} = 0;
+  let Inst{4-0} = 0x03;
+}
+}
+
+// 32-bit standby: the two-bit state occupies bits [6:5]. This instruction
+// suspends execution until the selected wake condition, but execution resumes
+// at the following instruction, so it is side-effecting rather than a CFG
+// terminator.
+let hasSideEffects = 1 in
+def STANDBY : NDS32Inst<(outs), (ins uimm2op:$state), "standby\t$state",
+                        [(int_nds32_standby uimm2op:$state)]> {
+  bits<2> state;
+  let Inst{31-25} = 0x32; let Inst{24-7} = 0;
+  let Inst{6-5} = state;  let Inst{4-0} = 0;
 }
 let Constraints = "$ra = $ra_wb", mayLoad = 1 in
 def LWI333_BI : NDS32Inst16<(outs GPR:$rt, GPR:$ra_wb),

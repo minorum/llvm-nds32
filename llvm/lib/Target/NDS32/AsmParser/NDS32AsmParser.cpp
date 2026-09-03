@@ -49,6 +49,18 @@ public:
   bool isToken() const override { return Kind == Token; }
   bool isReg() const override { return Kind == Register; }
   bool isImm() const override { return Kind == Immediate; }
+  bool isUImm2() const {
+    if (Kind != Immediate)
+      return false;
+    const auto *CE = dyn_cast<MCConstantExpr>(Imm);
+    return CE && CE->getValue() >= 0 && CE->getValue() <= 3;
+  }
+  bool isUImm5() const {
+    if (Kind != Immediate)
+      return false;
+    const auto *CE = dyn_cast<MCConstantExpr>(Imm);
+    return CE && CE->getValue() >= 0 && CE->getValue() <= 31;
+  }
   bool isMem() const override { return Kind == Memory; }
   bool isMemRR() const { return Kind == MemoryRR; }
 
@@ -504,8 +516,17 @@ bool NDS32AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     return false;
   case Match_MnemonicFail:
     return Error(IDLoc, "unrecognized instruction mnemonic");
-  case Match_InvalidOperand:
-    return Error(IDLoc, "invalid operand for instruction");
+  case Match_InvalidOperand: {
+    SMLoc ErrorLoc = IDLoc;
+    if (ErrorInfo != ~0ULL) {
+      if (ErrorInfo >= Operands.size())
+        return Error(IDLoc, "too few operands for instruction");
+      SMLoc OperandLoc = ((NDS32Operand &)*Operands[ErrorInfo]).getStartLoc();
+      if (OperandLoc.isValid())
+        ErrorLoc = OperandLoc;
+    }
+    return Error(ErrorLoc, "invalid operand for instruction");
+  }
   default:
     return Error(IDLoc, "failed to match instruction");
   }
