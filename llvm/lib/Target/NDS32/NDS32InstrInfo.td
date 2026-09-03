@@ -935,6 +935,13 @@ def SYSCALL : NDS32Inst<(outs), (ins i32imm:$swid), "syscall\t$swid", []> {
   let Inst{31-25} = 0x32; let Inst{24-20} = 0; let Inst{19-5} = swid;
   let Inst{4-0} = 0x0b;
 }
+
+// 32-bit dsb: op6=0x32, sub [4:0]=0x08. Data synchronisation barrier.
+let hasSideEffects = 1 in
+def DSB : NDS32Inst<(outs), (ins), "dsb", []> {
+  let Inst{31-25} = 0x32; let Inst{24-20} = 0;
+  let Inst{19-5} = 0;     let Inst{4-0} = 0x08;
+}
 let Constraints = "$ra = $ra_wb", mayLoad = 1 in
 def LWI333_BI : NDS32Inst16<(outs GPR:$rt, GPR:$ra_wb),
                             (ins GPR:$ra, off3words:$imm),
